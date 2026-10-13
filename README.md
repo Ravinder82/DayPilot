@@ -16,25 +16,25 @@ Press **Start Workday**, forget it exists. Press **Stop Day**, get an honest rea
 ### Main Window — Library Tab (Light / Dark)
 | Light | Dark |
 |:---:|:---:|
-| ![Light Library](dist/previews/light-library-2026-10-12.png) | ![Dark Library](dist/previews/dark-library-2026-10-12.png) |
+| ![Light Library](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/light-library-2026-10-12.png) | ![Dark Library](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/dark-library-2026-10-12.png) |
 | *Session sidebar with live session + archived days, report editor with rendered Markdown* | *Same view in dark appearance — full vibrancy support* |
 
 ### Memory Tab — AI File Manager (Light / Dark)
 | Light | Dark |
 |:---:|:---:|
-| ![Light Memory](dist/previews/light-memory-2026-10-12.png) | ![Dark Memory](dist/previews/dark-memory-2026-10-12.png) |
+| ![Light Memory](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/light-memory-2026-10-12.png) | ![Dark Memory](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/dark-memory-2026-10-12.png) |
 | *Add folders via security-scoped bookmarks, search/filter/sort, clean duplicates & missing files* | *Full dark mode support with semantic colors* |
 
 ### Pomodoro Timer (Light / Dark)
 | Light | Dark |
 |:---:|:---:|
-| ![Light Pomodoro](dist/previews/light-pomodoro-2026-10-12.png) | ![Dark Pomodoro](dist/previews/dark-pomodoro-2026-10-12.png) |
+| ![Light Pomodoro](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/light-pomodoro-2026-10-12.png) | ![Dark Pomodoro](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/dark-pomodoro-2026-10-12.png) |
 | *Toolbar status item: phase ring, remaining time, cycle count. Click to pause/resume.* | *Same in dark mode* |
 
 ### Settings — Providers & Voice (Light / Dark)
 | Light Providers | Dark Providers |
 |:---:|:---:|
-| ![Light Settings](dist/previews/light-settings-Providers.png) | ![Dark Settings](dist/previews/dark-settings-Providers.png) |
+| ![Light Settings](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/light-settings-Providers.png) | ![Dark Settings](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/dark-settings-Providers.png) |
 | *Provider picker, live model catalogue with Free/Paid badges, Test Connection, custom endpoints* | *Dark mode Settings* |
 
 ---
