@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "skill_name": "daypilot-tracker",
+  "version": "1.0.0",
+  "runtime": {
+    "platform": "macOS",
+    "architecture": "apple_silicon",
+    "min_os_version": "14.0"
+  },
+  "capture_engine": {
+    "capture_interval_seconds": 15,
+    "phash_similarity_threshold": 0.95,
+    "ocr_framework": "AppleVision_VNRecognizeTextRequest",
+    "ocr_recognition_level": "accurate",
+    "use_neural_engine": true,
+    "max_stored_events_per_session": 5000
+  },
+  "app_filters": {
+    "sensitive_blacklist_bundle_ids": [
+      "com.1password.1password",
+      "com.agilebits.onepassword7",
+      "com.apple.keychainaccess",
+      "com.apple.MobileSMS",
+      "com.apple.FaceTime"
+    ],
+    "sensitive_url_patterns": [
+      "*bank*",
+      "*login*",
+      "*auth0*",
+      "*accounts.google.com*",
+      "*private_token*"
+    ],
+    "ephemeral_capture_targets": [
+      {
+        "bundle_id": "com.apple.Stickies",
+        "category": "quick_notes",
+        "priority": "high"
+      },
+      {
+        "bundle_id": "com.apple.Notes",
+        "category": "personal_notes",
+        "priority": "high"
+      },
+      {
+        "bundle_id": "com.apple.TextEdit",
+        "category": "scratchpad",
+        "priority": "medium"
+      },
+      {
+        "bundle_id": "com.apple.Terminal",
+        "category": "cli_scratchpad",
+        "priority": "high"
+      },
+      {
+        "bundle_id": "com.googlecode.iterm2",
+        "category": "cli_scratchpad",
+        "priority": "high"
+      }
+    ],
+    "exploratory_domains": [
+      "x.com",
+      "twitter.com",
+      "aistudio.google.com",
+      "claude.ai",
+      "chatgpt.com",
+      "github.com",
+      "openrouter.ai"
+    ],
+    "core_development_bundle_ids": [
+      "com.apple.dt.Xcode",
+      "com.microsoft.VSCode",
+      "com.google.antigravity",
+      "dev.opencode.client"
+    ]
+  },
+  "pruning_rules": {
+    "idle_timeout_seconds": 120,
+    "min_meaningful_dwell_seconds": 30,
+    "social_scroll_no_action_flag": true,
+    "auto_purge_types": [
+      "routine_email_checking",
+      "passive_feed_scrolling",
+      "rapid_window_cycling"
+    ]
+  },
+  "api_providers": {
+    "default_provider": "google_ai_studio",
+    "providers": {
+      "google_ai_studio": {
+        "label": "Google AI Studio (Gemini 2.0 Flash)",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "api_key_env": "GEMINI_API_KEY",
+        "model": "gemini-2.0-flash",
+        "temperature": 0.3,
+        "max_context_window": 1048576,
+        "cost_per_million_input": 0.0,
+        "is_free_tier": true
+      },
+      "openrouter_free": {
+        "label": "OpenRouter Free Models",
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "model": "meta-llama/llama-3.3-70b-instruct:free",
+        "temperature": 0.4,
+        "max_context_window": 131072,
+        "cost_per_million_input": 0.0,
+        "is_free_tier": true
+      },
+      "groq": {
+        "label": "Groq Fast Inference",
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "model": "llama-3.3-70b-versatile",
+        "temperature": 0.3,
+        "max_context_window": 128000,
+        "cost_per_million_input": 0.0,
+        "is_free_tier": true
+      },
+      "nvidia_nim": {
+        "label": "NVIDIA NIM Cloud",
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "api_key_env": "NVIDIA_API_KEY",
+        "model": "meta/llama-3.3-70b-instruct",
+        "temperature": 0.4,
+        "max_context_window": 128000,
+        "cost_per_million_input": 0.0,
+        "is_free_tier": true
+      },
+      "deepseek": {
+        "label": "DeepSeek API",
+        "base_url": "https://api.deepseek.com/v1",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "model": "deepseek-chat",
+        "temperature": 0.3,
+        "max_context_window": 64000,
+        "cost_per_million_input": 0.14,
+        "is_free_tier": false
+      }
+    }
+  },
+  "audio_synthesis": {
+    "engine": "macOS_AVSpeechSynthesizer",
+    "voice_identifiers": [
+      "com.apple.voice.enhanced.en-US.Ava",
+      "com.apple.voice.compact.en-US.Samantha",
+      "com.apple.speech.synthesis.voice.Alex"
+    ],
+    "rate": 0.52,
+    "pitch_multiplier": 1.0,
+    "delimiter_tags": {
+      "start": "[VOICE_SCRIPT]",
+      "end": "[/VOICE_SCRIPT]"
+    }
+  },
+  "storage_paths": {
+    "base_directory": "~/Library/Application Support/DayPilot",
+    "sessions_directory": "~/Library/Application Support/DayPilot/Sessions",
+    "reports_directory": "~/Library/Application Support/DayPilot/Reports",
+    "profile_store": "~/Library/Application Support/DayPilot/profile.json",
+    "breadcrumbs_vault": "~/Library/Application Support/DayPilot/breadcrumbs_vault.json"
+  }
+}

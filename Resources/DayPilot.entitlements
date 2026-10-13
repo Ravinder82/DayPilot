@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  DayPilot signing entitlements (development / ad-hoc).
+
+  DayPilot samples *other* applications' windows with ScreenCaptureKit and
+  reads window metadata through the Accessibility APIs. Neither capability
+  works from inside the App Sandbox, so the sandbox is explicitly disabled.
+  No raw video is ever persisted: frames are consumed by Vision on the Neural
+  Engine, tokenized to text, and dropped immediately.
+
+  Production builds should be signed with a Developer ID certificate; these
+  values are still correct at that point.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
+</dict>
+</plist>

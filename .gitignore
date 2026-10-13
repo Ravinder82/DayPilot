@@ -1,0 +1,19 @@
+# SwiftPM / Xcode
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+*.xcworkspace/
+*.playground/
+
+# Packaged app and build output
+DayPilot.app/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
