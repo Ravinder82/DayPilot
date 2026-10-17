@@ -1,12 +1,6 @@
 import SwiftUI
 import ScreenCaptureKit
 
-/// The tabs of the Settings window, in the order people reach for them.
-enum SettingsTab: Hashable, CaseIterable {
-    case providers
-    case pomodoro
-}
-
 /// The Settings window (⌘,).
 ///
 /// Built to macOS Settings conventions: grouped forms, one primary action per
@@ -18,7 +12,6 @@ struct SettingsView: View {
     @ObservedObject private var model: AppModel
     @ObservedObject private var settings: AppSettings
 
-    @State private var selectedTab: SettingsTab
     @State private var modelFilter: ModelFilter = .all
     @State private var apiKeyDraft = ""
     @State private var apiKeyIsRevealed = false
@@ -29,24 +22,14 @@ struct SettingsView: View {
     @State private var showingRemoveProvider = false
     @State private var showingRemoveKeys = false
 
-    init(model: AppModel, initialTab: SettingsTab = .providers) {
+    init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
         _settings = ObservedObject(wrappedValue: model.settings)
-        _selectedTab = State(initialValue: initialTab)
     }
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            providersTab
-                .tabItem { Label("Providers", systemImage: "cpu") }
-                .tag(SettingsTab.providers)
-
-            pomodoroTab
-                .tabItem { Label("Pomodoro", systemImage: "timer") }
-                .tag(SettingsTab.pomodoro)
-
-        }
-        .frame(width: 620, height: 680)
+        providersTab
+            .frame(width: 620, height: 680)
     }
 
     // MARK: - Providers
@@ -302,76 +285,6 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Pomodoro
-
-    private var pomodoroTab: some View {
-        Form {
-            Section {
-                LabeledContent("Work duration") {
-                    Text("\(Int(settings.pomodoroWorkDuration / 60)) minutes")
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: workDurationBinding, in: 60...3600, step: 60) {
-                    Text("Work duration")
-                } minimumValueLabel: {
-                    Text("1m")
-                } maximumValueLabel: {
-                    Text("60m")
-                }
-
-                LabeledContent("Short break") {
-                    Text("\(Int(settings.pomodoroShortBreakDuration / 60)) minutes")
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: shortBreakBinding, in: 30...1800, step: 30) {
-                    Text("Short break")
-                } minimumValueLabel: {
-                    Text("30s")
-                } maximumValueLabel: {
-                    Text("30m")
-                }
-
-                LabeledContent("Long break") {
-                    Text("\(Int(settings.pomodoroLongBreakDuration / 60)) minutes")
-                        .foregroundStyle(.secondary)
-                }
-                Slider(value: longBreakBinding, in: 60...3600, step: 60) {
-                    Text("Long break")
-                } minimumValueLabel: {
-                    Text("1m")
-                } maximumValueLabel: {
-                    Text("60m")
-                }
-
-                Stepper("Cycles before long break: \(settings.pomodoroCyclesBeforeLongBreak)",
-                        value: cyclesBinding, in: 2...10)
-            } header: {
-                Text("Durations")
-            } footer: {
-                Text("Standard Pomodoro: 25 min work, 5 min short break, 15 min long break every 4 cycles.")
-            }
-
-            Section {
-                Toggle("Play sound on phase change", isOn: soundBinding)
-            } header: {
-                Text("Behavior")
-            } footer: {
-                Text("One control drives both: Start begins the session and the focus timer, Pause holds both, and Stop ends both and writes the Day Brief. While a session records, work and break phases run one after another.")
-            }
-
-            Section {
-                Button("Reset to Defaults") {
-                    settings.pomodoroWorkDuration = 25 * 60
-                    settings.pomodoroShortBreakDuration = 5 * 60
-                    settings.pomodoroLongBreakDuration = 15 * 60
-                    settings.pomodoroCyclesBeforeLongBreak = 4
-                    settings.pomodoroSoundEnabled = true
-                }
-            }
-        }
-        .formStyle(.grouped)
-    }
-
     // MARK: - Verification feedback
 
     @ViewBuilder
@@ -582,41 +495,6 @@ struct SettingsView: View {
         Binding(
             get: { settings.captureIntervalSeconds },
             set: { settings.captureIntervalSeconds = $0 }
-        )
-    }
-
-    private var workDurationBinding: Binding<Double> {
-        Binding(
-            get: { settings.pomodoroWorkDuration },
-            set: { settings.pomodoroWorkDuration = $0 }
-        )
-    }
-
-    private var shortBreakBinding: Binding<Double> {
-        Binding(
-            get: { settings.pomodoroShortBreakDuration },
-            set: { settings.pomodoroShortBreakDuration = $0 }
-        )
-    }
-
-    private var longBreakBinding: Binding<Double> {
-        Binding(
-            get: { settings.pomodoroLongBreakDuration },
-            set: { settings.pomodoroLongBreakDuration = $0 }
-        )
-    }
-
-    private var cyclesBinding: Binding<Int> {
-        Binding(
-            get: { settings.pomodoroCyclesBeforeLongBreak },
-            set: { settings.pomodoroCyclesBeforeLongBreak = $0 }
-        )
-    }
-
-    private var soundBinding: Binding<Bool> {
-        Binding(
-            get: { settings.pomodoroSoundEnabled },
-            set: { settings.pomodoroSoundEnabled = $0 }
         )
     }
 

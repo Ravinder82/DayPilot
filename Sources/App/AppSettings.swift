@@ -17,8 +17,8 @@ final class AppSettings: ObservableObject {
         registerDefaults()
     }
 
-    /// Writes first-launch defaults, so a fresh install has a working voice and
-    /// sampling interval rather than a blank picker.
+    /// Writes first-launch defaults, so a fresh install has a working sampling
+    /// interval rather than a blank picker.
     private func registerDefaults() {
         defaults.register(defaults: [
             Keys.captureIntervalSeconds: DayPilotConfiguration.captureIntervalSeconds,
@@ -30,12 +30,6 @@ final class AppSettings: ObservableObject {
         static let captureIntervalSeconds = "settings.captureIntervalSeconds"
         static let preferredProviderID = "settings.preferredProviderID"
         static let selectedModelByProvider = "settings.selectedModelByProvider"
-        // Pomodoro
-        static let pomodoroWorkDuration = "settings.pomodoroWorkDuration"
-        static let pomodoroShortBreakDuration = "settings.pomodoroShortBreakDuration"
-        static let pomodoroLongBreakDuration = "settings.pomodoroLongBreakDuration"
-        static let pomodoroCyclesBeforeLongBreak = "settings.pomodoroCyclesBeforeLongBreak"
-        static let pomodoroSoundEnabled = "settings.pomodoroSoundEnabled"
     }
 
     // MARK: - Provider and model
@@ -100,74 +94,9 @@ final class AppSettings: ObservableObject {
         defaults.removeObject(forKey: Keys.captureIntervalSeconds)
         defaults.removeObject(forKey: Keys.preferredProviderID)
         defaults.removeObject(forKey: Keys.selectedModelByProvider)
-        defaults.removeObject(forKey: Keys.pomodoroWorkDuration)
-        defaults.removeObject(forKey: Keys.pomodoroShortBreakDuration)
-        defaults.removeObject(forKey: Keys.pomodoroLongBreakDuration)
-        defaults.removeObject(forKey: Keys.pomodoroCyclesBeforeLongBreak)
-        defaults.removeObject(forKey: Keys.pomodoroSoundEnabled)
         registerDefaults()
         objectWillChange.send()
         logger.notice("Preferences restored to their defaults")
-    }
-
-    // MARK: - Pomodoro
-
-    /// Work duration in seconds (default 25 minutes).
-    var pomodoroWorkDuration: Double {
-        get {
-            let stored = defaults.double(forKey: Keys.pomodoroWorkDuration)
-            return stored > 0 ? stored : 25 * 60
-        }
-        set {
-            defaults.set(newValue.clamped(to: 60...3600), forKey: Keys.pomodoroWorkDuration)
-            objectWillChange.send()
-        }
-    }
-
-    /// Short break duration in seconds (default 5 minutes).
-    var pomodoroShortBreakDuration: Double {
-        get {
-            let stored = defaults.double(forKey: Keys.pomodoroShortBreakDuration)
-            return stored > 0 ? stored : 5 * 60
-        }
-        set {
-            defaults.set(newValue.clamped(to: 30...1800), forKey: Keys.pomodoroShortBreakDuration)
-            objectWillChange.send()
-        }
-    }
-
-    /// Long break duration in seconds (default 15 minutes).
-    var pomodoroLongBreakDuration: Double {
-        get {
-            let stored = defaults.double(forKey: Keys.pomodoroLongBreakDuration)
-            return stored > 0 ? stored : 15 * 60
-        }
-        set {
-            defaults.set(newValue.clamped(to: 60...3600), forKey: Keys.pomodoroLongBreakDuration)
-            objectWillChange.send()
-        }
-    }
-
-    /// Number of work cycles before a long break (default 4).
-    var pomodoroCyclesBeforeLongBreak: Int {
-        get {
-            let stored = defaults.integer(forKey: Keys.pomodoroCyclesBeforeLongBreak)
-            return stored > 0 ? stored : 4
-        }
-        set {
-            let clamped = Swift.max(2, Swift.min(10, newValue))
-            defaults.set(clamped, forKey: Keys.pomodoroCyclesBeforeLongBreak)
-            objectWillChange.send()
-        }
-    }
-
-    /// Play sound on phase transitions.
-    var pomodoroSoundEnabled: Bool {
-        get { defaults.object(forKey: Keys.pomodoroSoundEnabled) as? Bool ?? true }
-        set {
-            defaults.set(newValue, forKey: Keys.pomodoroSoundEnabled)
-            objectWillChange.send()
-        }
     }
 }
 

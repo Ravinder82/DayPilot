@@ -1,29 +1,26 @@
 import SwiftUI
 
 /// The focus console: one capsule in the top bar that holds the session
-/// controls and the Pomodoro instrument side by side.
+/// controls and the session timer side by side.
 ///
-/// Reading left to right: Start / Pause / Stop — the action available right
-/// now is the only filled button — a hairline divider, then the timer readout:
-/// progress ring, remaining time, phase, and cycle pips. The one panel of
-/// buttons drives both the session and the timer; right-click the readout to
-/// reset the timer or skip a phase.
+/// Reading left to right: a single play/pause toggle — the button always
+/// shows the action available right now and never a disabled twin beside it —
+/// then Stop & Debrief, a hairline divider, and a plain stopwatch that counts
+/// the session upward. The timer holds while the session is paused and resets
+/// when the session ends. Stop writes the Day Brief; Pause never does.
 struct FocusConsoleView: View {
 
     @ObservedObject var model: AppModel
-    var showsPomodoro: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             SessionControls(model: model)
 
-            if showsPomodoro {
-                Divider()
-                    .frame(height: 18)
-                    .opacity(0.6)
+            Divider()
+                .frame(height: 18)
+                .opacity(0.6)
 
-                PomodoroInstrument(model: model)
-            }
+            SessionTimer(model: model)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
@@ -41,40 +38,31 @@ struct FocusConsoleView: View {
 
 // MARK: - Session controls
 
-/// Start, Pause/Resume, and Stop & Debrief. A pause never writes the Day
-/// Brief; only Stop does. The filled button always marks the action available
-/// at this moment, so there is exactly one.
+/// One play/pause toggle and Stop & Debrief.
+///
+/// The toggle carries both actions the way a media control does: play starts
+/// or resumes, pause holds. While the Day Brief is being written a small
+/// spinner takes its place. A pause never writes the brief — only Stop does.
 private struct SessionControls: View {
 
     @ObservedObject var model: AppModel
 
     var body: some View {
         HStack(spacing: 2) {
-            ConsoleButton(
-                systemImage: "play.fill",
-                tint: .green,
-                isProminent: model.sessionState == .idle,
-                isEnabled: model.sessionState == .idle,
-                help: "Start a session and the focus timer"
-            ) {
-                Task { await model.startWorkday() }
-            }
-
-            ConsoleButton(
-                systemImage: model.isSessionPaused ? "play.fill" : "pause.fill",
-                tint: model.isSessionPaused ? .green : .orange,
-                isProminent: model.sessionState == .capturing || model.sessionState == .paused,
-                isEnabled: model.sessionState == .capturing || model.sessionState == .paused,
-                help: model.isSessionPaused
-                    ? "Resume the session and timer"
-                    : "Pause the session — the debrief is written only when you stop"
-            ) {
-                Task {
-                    if model.isSessionPaused {
-                        await model.resumeWorkday()
-                    } else {
-                        await model.pauseWorkday()
-                    }
+            if model.sessionState == .synthesising {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(width: 24, height: 24)
+                    .help("Writing the Day Brief…")
+                    .accessibilityLabel("Writing the Day Brief")
+            } else {
+                ConsoleButton(
+                    systemImage: model.sessionState == .capturing ? "pause.fill" : "play.fill",
+                    tint: model.sessionState == .capturing ? .orange : .green,
+                    isProminent: true,
+                    help: toggleHelp
+                ) {
+                    toggle()
                 }
             }
 
@@ -88,140 +76,59 @@ private struct SessionControls: View {
             }
         }
     }
+
+    private var toggleHelp: String {
+        switch model.sessionState {
+        case .idle: return "Start a session"
+        case .capturing: return "Pause the session — the Day Brief is written only when you stop"
+        case .paused: return "Resume the session"
+        case .synthesising: return "Writing the Day Brief…"
+        }
+    }
+
+    private func toggle() {
+        Task {
+            switch model.sessionState {
+            case .idle:
+                await model.startWorkday()
+            case .capturing:
+                await model.pauseWorkday()
+            case .paused:
+                await model.resumeWorkday()
+            case .synthesising:
+                break
+            }
+        }
+    }
 }
 
-// MARK: - Pomodoro readout
+// MARK: - Session timer
 
-/// The Pomodoro readout: ring, time, phase, and cycle pips. Display only —
-/// the session panel beside it drives the timer. Right-click offers the
-/// occasional actions: reset and skip.
-private struct PomodoroInstrument: View {
+/// A plain stopwatch for the current session: elapsed time counted upward in
+/// monospaced digits, `00:00:00` at rest. No deadlines, no phases — the
+/// session runs as long as it runs.
+private struct SessionTimer: View {
 
     @ObservedObject var model: AppModel
 
     var body: some View {
-        HStack(spacing: 10) {
-            progressRing
-            timeText
-            phaseLabel
-            cyclePips
-        }
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button("Skip to Next Phase") {
-                model.skipPomodoroPhase()
-            }
-            .disabled(model.pomodoroPhase == .idle)
-
-            Button("Reset Timer", role: .destructive) {
-                model.resetPomodoro()
-            }
-            .disabled(model.pomodoroPhase == .idle && model.pomodoroCycleCount == 0)
-        }
-        .help(model.pomodoroPhase == .idle
-            ? "Focus timer — starts with the session"
-            : "Focus timer — right-click to skip a phase or reset")
-    }
-
-    private var progressRing: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.09), lineWidth: 3)
-
-            Circle()
-                .trim(from: 0, to: model.pomodoroProgress)
-                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.linear(duration: 1), value: model.pomodoroProgress)
-
-            if model.pomodoroPhase == .idle {
-                Image(systemName: "timer")
-                    .font(.system(size: 8, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(width: 22, height: 22)
-        .accessibilityHidden(true)
-    }
-
-    private var timeText: some View {
-        Text(clockText)
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
-            .monospacedDigit()
-            .foregroundStyle(model.pomodoroPhase == .idle ? Color.secondary : Color.primary)
-            .contentTransition(.numericText())
-            .animation(.snappy(duration: 0.3), value: clockText)
-            .lineLimit(1)
-            .fixedSize()
-            .frame(minWidth: 46, alignment: .leading)
-            .accessibilityLabel("Focus timer")
-            .accessibilityValue(clockText)
-    }
-
-    private var phaseLabel: some View {
-        HStack(spacing: 5) {
-            Circle()
-                .fill(tint)
-                .frame(width: 6, height: 6)
-                .opacity(model.pomodoroPhase == .idle ? 0.4 : 1)
-
-            Text(model.pomodoroPhase == .idle ? "Ready" : model.pomodoroPhaseText)
+        HStack(spacing: 6) {
+            Image(systemName: "stopwatch")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
+
+            Text(model.elapsedClockText)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(model.sessionState == .idle ? Color.secondary : Color.primary)
+                .contentTransition(.numericText())
+                .lineLimit(1)
                 .fixedSize()
         }
-    }
-
-    private var cyclePips: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<model.settings.pomodoroCyclesBeforeLongBreak, id: \.self) { index in
-                Circle()
-                    .fill(index < completedInSet ? tint : Color.primary.opacity(0.12))
-                    .frame(width: 4, height: 4)
-            }
-        }
-        .animation(.snappy(duration: 0.25), value: model.pomodoroCycleCount)
-        .accessibilityHidden(true)
-    }
-
-    // MARK: Readouts
-
-    /// `MM:SS`, or `H:MM:SS` past an hour. Idle shows the configured work
-    /// length, so the instrument reads "25:00 · Ready" before it starts.
-    private var clockText: String {
-        let seconds: Int
-        if model.pomodoroPhase == .idle {
-            seconds = Int(model.settings.pomodoroWorkDuration)
-        } else {
-            seconds = Int(max(0, model.pomodoroPhaseDuration - model.pomodoroElapsedSeconds).rounded(.down))
-        }
-
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        let secs = seconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, secs)
-        }
-        return String(format: "%02d:%02d", minutes, secs)
-    }
-
-    /// Cycles finished inside the current set of four.
-    private var completedInSet: Int {
-        let cycles = model.settings.pomodoroCyclesBeforeLongBreak
-        guard cycles > 0, model.pomodoroCycleCount > 0 else { return 0 }
-        if model.pomodoroCycleCount % cycles == 0, model.pomodoroPhase == .longBreak {
-            return cycles
-        }
-        return model.pomodoroCycleCount % cycles
-    }
-
-    private var tint: Color {
-        switch model.pomodoroPhase {
-        case .idle: return .secondary
-        case .work: return .orange
-        case .shortBreak: return .green
-        case .longBreak: return .blue
-        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Session timer")
+        .accessibilityValue(model.elapsedClockText)
+        .help("Session timer — runs with the session and holds while paused")
     }
 }
 

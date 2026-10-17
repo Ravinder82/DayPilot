@@ -7,9 +7,9 @@
 
 ![DayPilot Banner](https://raw.githubusercontent.com/Ravinder82/DayPilot/master/dist/previews/banner.png)
 
-**Native macOS app: a windowed library and editor, with a menu bar item, that turns an unstructured workday into a 60-second spoken briefing and a friction-free morning launchpad.**
+**Native macOS app: a windowed library and editor that turns an unstructured workday into a dynamic, evidence-grounded Day Brief.**
 
-Press **Start Workday**, forget it exists. Press **Stop Day**, get an honest readout of what actually shipped, what ideas you nearly lost, and what to do first tomorrow morning. The main window holds the session library and the report editor; the menu bar item is a convenience for the same controls.
+Press **Start**, forget it exists. Press **Stop & Debrief**, get an honest chief-of-staff readout of what actually shipped, what ideas you nearly lost, and what to do first tomorrow morning. The main window holds the session library and the report editor.
 
 ---
 
@@ -19,13 +19,13 @@ Press **Start Workday**, forget it exists. Press **Stop Day**, get an honest rea
 |------|------------|
 | **🗂 Session Library** | Live session row with pulsing timer • Archived sessions with event/breadcrumb counts • Context menu: Duplicate, Delete, Reveal in Finder |
 | **📝 Report Editor** | Rendered Markdown by default • Source edit mode (⌘⇧U) with debounced auto-save • Code blocks with copy button • Tables, quotes, lists • Export: Markdown, HTML, PDF, Plain Text |
-| **⏱ Pomodoro Timer** | 25/5/15 defaults, fully configurable • Auto-advance phases • Sound on transition • Toolbar ring + cycle count • Settings tab with durations, cycles, auto-start toggles |
+| **⏱ Session Console** | One play/pause toggle + Stop & Debrief in the top bar • A plain stopwatch counts the session upward, holds on pause, resets on stop • Pause never writes a brief — only Stop does |
+| **📋 Day Brief** | Chief-of-staff debrief written from a deterministic evidence pack • BLUF opener, dynamic sections, artifacts verified against the payload • Slop filter: no emoji, canned phrases, or fabricated paths ever reach the report |
 | **🧠 Memory (File Manager)** | Security-scoped bookmarks — no Full Disk Access needed • Recursive indexing with SHA-256 dedup • Search by name/path/summary • Filter by folder & file type (code, images, PDF, video…) • Clean missing files & duplicates • Per-file context menu |
 | **🤖 AI Providers** | Live `/models` fetch from any OpenAI-compatible endpoint • Free/Paid/Unpriced badges • Curated fallbacks for Google, OpenRouter, Groq, NVIDIA, DeepSeek • Custom endpoints (add/edit/remove) • Test Connection before saving key |
 | **🔐 Keychain Storage** | API keys in macOS Keychain (`service: com.daypilot.apikeys`) • Test Connection uses typed key before saving • Remove individual or all keys |
-| **🗣 Voice Playback** | `AVSpeechSynthesizer` on-device • Enhanced voice picker • Auto-play on session stop • Preview in Settings • Pause/Resume/Restart from toolbar & menu |
 | **💾 Persistence** | SQLite (`~/Library/Application Support/DayPilot/DayPilot.sqlite`) • Reports as Markdown (`~/…/Reports/YYYY-MM-DD_<sessionId>.md`) • User memory profile (`user_memory.json`) • Model catalogue cache (`model_catalog.json`) |
-| **🪟 Native macOS** | Windowed app — Dock icon, Launchpad, Spotlight, Cmd+Tab • Menu bar extra for quick control • Settings window (⌘,) • Full dark/light appearance • Signed with Apple Development identity (TCC grants survive rebuilds) |
+| **🪟 Native macOS** | Windowed app — Dock icon, Launchpad, Spotlight, Cmd+Tab • Settings window (⌘,) • Full dark/light appearance • Signed with Apple Development identity (TCC grants survive rebuilds) |
 
 ---
 
@@ -35,13 +35,12 @@ Press **Start Workday**, forget it exists. Press **Stop Day**, get an honest rea
 DayPilotApp (@main)
 ├── AppDelegate          # NSApplicationDelegate — quit handling, snapshot harness
 ├── AppModel (@MainActor ObservableObject)
-│   ├── SessionCoordinator    # Capture → OCR → SQLite → Synthesis → Archive → Voice
+│   ├── SessionCoordinator    # Capture → OCR → SQLite → Synthesis → Archive → Zero-Trace purge
 │   ├── SessionStore          # SQLite: session_events, sessions
 │   ├── UserMemoryStore       # JSON profile + rules of thumb
 │   ├── ReportLibrary         # Markdown files + Trash
 │   ├── FileManagerStore      # Bookmarks + file index (UserDefaults)
 │   ├── ModelCatalog          # Live /models + curated fallback + cache
-│   ├── VoicePlaybackEngine   # AVSpeechSynthesizer wrapper
 │   └── Settings (AppSettings)# UserDefaults preferences
 ├── Capture Engine
 │   ├── ScreenCaptureEngine   # SCShareableContent + SCStream (15s interval)
@@ -49,15 +48,15 @@ DayPilotApp (@main)
 │   └── WindowManager         # Accessibility API for window titles
 ├── Synthesis
 │   ├── APIClient             # OpenAI-compatible, model override, 401/403/429 hints
-│   ├── PromptBuilder         # 4-pass pruning: noise → harvest → mirror → launchpad
-│   └── ReportArchiver        # Markdown + provenance + voice script + rules
+│   ├── PromptBuilder         # Chief-of-staff prompt + deterministic evidence pack
+│   ├── BriefSanitizer        # Slop filter, artifact verification, title canonicalisation
+│   └── ReportArchiver        # Markdown + provenance + rules of thumb
 └── UI (SwiftUI)
-    ├── MainWindowView        # Tab bar: Library | Memory
+    ├── MainWindowView        # Top bar: Library | Memory + focus console
     │   ├── SessionSidebarView
     │   ├── ReportEditorView
     │   └── FileManagerView
-    ├── SettingsView          # Providers | Pomodoro | Voice & Perception
-    └── MenuBarView           # Quick session + Pomodoro controls
+    └── SettingsView          # Provider, model, permissions, developer tools
 ```
 
 ---
@@ -75,9 +74,9 @@ make build      # release build (~30s)
 make install
 
 # 3. Launch from Launchpad / Spotlight
-# 4. Grant Screen Recording in System Settings → Privacy & Security
+# 4. Grant Screen Recording — DayPilot's own sheet deep-links to System Settings
 # 5. Open Settings (⌘,) → Providers → Add your API key
-# 6. Click "Start Workday" in toolbar or menu bar
+# 6. Click Start in the top-bar console
 ```
 
 ### API Keys (choose one)
@@ -103,7 +102,7 @@ make install          # Package + copy to /Applications
 make package          # Build, sign, verify dist/DayPilot.app
 make snapshots        # Capture app windows (light+dark) to dist/previews/
 make selftest         # System health check (exits 0/1)
-make integration-test # Full pipeline: capture → synthesize → archive → speak
+make integration-test # Full pipeline: capture → synthesize → archive → purge
 make clean            # Remove .build, .swiftpm, dist/
 ```
 
@@ -112,6 +111,8 @@ make clean            # Remove .build, .swiftpm, dist/
 | Flag | Purpose |
 |------|---------|
 | `--selftest` | Run health check & exit |
+| `--brief-preview` | Offline brief pipeline check — no network, no Keychain |
+| `--stress-test` | 200-event simulation through Laya + synthesis + purge |
 | `--integration-test` | Full synthesis run (sandboxed) |
 | `--test-connection <provider>` | Test a key via `DAYPILOT_TEST_KEY` env |
 | `--list-models <provider>` | Print live model catalogue |
@@ -154,9 +155,11 @@ fileManager.cleanDuplicates()     // Keeps one copy per SHA-256 hash
 |------------|-----|-----------|
 | **Screen Recording** | Capture window frames for OCR | System Settings → Privacy & Security → Screen Recording |
 | **Accessibility** | Read window titles / app names | System Settings → Privacy & Security → Accessibility |
-| **Microphone** | Not used (speech is TTS output) | N/A |
+| **Microphone** | Not used — DayPilot records nothing audible | N/A |
 
 **No raw video leaves your Mac.** Frames → Vision (ANE) → text delta → SQLite. Sensitive apps (1Password, Keychain, Messages, FaceTime, banking URLs) are blocked before capture.
+
+**Zero-Trace:** after a Day Brief is written, every raw OCR row is deleted from SQLite and the database is vacuumed. The final Markdown report is the only thing that survives a session.
 
 ---
 
@@ -200,4 +203,4 @@ MIT — see [LICENSE](LICENSE).
 
 ---
 
-*Built with Swift 6, SwiftUI, ScreenCaptureKit, Vision, AVFoundation, and a lot of ☕.*
+*Built with Swift 6, SwiftUI, ScreenCaptureKit, Vision, and a lot of ☕.*

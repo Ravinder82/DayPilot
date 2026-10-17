@@ -3,10 +3,10 @@ import os
 
 /// The AppKit side of DayPilot's lifecycle.
 ///
-/// DayPilot is a regular, windowed application that also has a menu bar item. It
-/// keeps the default activation policy, which gives it a Dock icon, presence in
-/// Launchpad and Applications, and a main window. This delegate handles what
-/// SwiftUI's `App` protocol does not expose: quitting, and the snapshot harness.
+/// DayPilot is a regular, windowed application: the default activation policy
+/// gives it a Dock icon, presence in Launchpad and Applications, and a main
+/// window. This delegate handles what SwiftUI's `App` protocol does not expose:
+/// quitting, and the snapshot harness.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -28,6 +28,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let model else { return .terminateNow }
         model.flushPendingReportWrite()
 
+        // A model that never booted — preview fixtures, window snapshots — has
+        // no session to close, whatever its display state shows.
+        guard model.phase.isReady else { return .terminateNow }
+
         guard model.sessionState == .capturing || model.sessionState == .synthesising else {
             return .terminateNow
         }
@@ -48,8 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 
-    /// Closing the main window must not end the app. The menu bar item and any
-    /// running session still need it.
+    /// Closing the main window must not end the app: a running session still
+    /// needs it.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
     }
