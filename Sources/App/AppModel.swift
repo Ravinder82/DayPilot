@@ -44,7 +44,6 @@ final class AppModel: ObservableObject {
     }
 
     @Published private(set) var sessionState: SessionState = .idle
-    @Published private(set) var isSessionPaused: Bool = false
     /// True when DayPilot's own screen-recording sheet should be visible.
     /// Set when a Start attempt finds the grant missing; showing it never
     /// raises a system dialog.
@@ -57,25 +56,6 @@ final class AppModel: ObservableObject {
     /// Why the most recent start did not begin. A synthesis failure belongs to one
     /// session, so it is carried by `lastCompletion` instead.
     @Published private(set) var lastFailureReason: String?
-
-    // MARK: - Pomodoro
-
-    enum PomodoroPhase: Equatable {
-        case idle
-        case work
-        case shortBreak
-        case longBreak
-    }
-
-    @Published private(set) var pomodoroPhase: PomodoroPhase = .idle
-    @Published private(set) var pomodoroElapsedSeconds: TimeInterval = 0
-    @Published private(set) var pomodoroCycleCount = 0
-    @Published private(set) var pomodoroTotalWorkSeconds: TimeInterval = 0
-    @Published private(set) var pomodoroTotalBreakSeconds: TimeInterval = 0
-    @Published private(set) var isPomodoroRunning = false
-
-    private var pomodoroTimer: Timer?
-    private var pomodoroSettingsObserver: NSObjectProtocol?
 
     // MARK: - Latest debrief
 
@@ -157,6 +137,16 @@ final class AppModel: ObservableObject {
         // selection change can replace it with a disk lookup.
         if LaunchHarness.usesPreviewFixtures {
             showPreview(markdown: PreviewFixtures.debrief, sessions: PreviewFixtures.sessions)
+        }
+
+        // Window snapshots depict the app mid-session. Starting a real session
+        // there would need permissions and hardware, so the display state is set
+        // directly; nothing is captured and nothing touches the Keychain.
+        if LaunchHarness.snapshotDirectory != nil {
+            sessionState = .capturing
+            sessionElapsedSeconds = 3_862
+            eventCount = 47
+            breadcrumbCount = 9
         }
     }
 
@@ -358,14 +348,6 @@ final class AppModel: ObservableObject {
 
         do {
             try await coordinator.start()
-            // One panel drives both: a session start starts the focus timer.
-            if !isPomodoroRunning {
-                if pomodoroPhase == .idle {
-                    startPomodoro()
-                } else {
-                    resumePomodoro()
-                }
-            }
             return nil
         } catch {
             // Missing Screen Recording is the one failure with a guided fix:
@@ -423,10 +405,6 @@ final class AppModel: ObservableObject {
 
         let completion = await coordinator.stop()
 
-        if isPomodoroRunning {
-            pausePomodoro()
-        }
-
         lastCompletion = completion
         latestReportPath = completion.reportPath
         latestReportMarkdown = completion.reportMarkdown
@@ -474,21 +452,11 @@ final class AppModel: ObservableObject {
     func pauseWorkday() async {
         guard sessionState == .capturing, let coordinator else { return }
         await coordinator.pause()
-        sessionState = .paused
-        isSessionPaused = true
-        if isPomodoroRunning {
-            pausePomodoro()
-        }
     }
 
     func resumeWorkday() async {
         guard sessionState == .paused, let coordinator else { return }
         await coordinator.resume()
-        sessionState = .capturing
-        isSessionPaused = false
-        if !isPomodoroRunning, pomodoroPhase != .idle {
-            resumePomodoro()
-        }
     }
 
     private func applySessionState(_ state: SessionCoordinator.TrackingState) {
@@ -498,10 +466,8 @@ final class AppModel: ObservableObject {
             sessionElapsedSeconds = 0
         case .capturing:
             sessionState = .capturing
-            isSessionPaused = false
         case .paused:
             sessionState = .paused
-            isSessionPaused = true
         case .synthesising:
             sessionState = .synthesising
         }
@@ -509,11 +475,12 @@ final class AppModel: ObservableObject {
 
     /// Refreshes the elapsed counter. Driven by a one-second timer in whichever
     /// window is showing the time, so the value is a stored property that
-    /// `@Published` can announce.
+    /// `@Published` can announce. During synthesis the last value stays frozen;
+    /// when the session ends, the counter resets.
     func refreshElapsed() {
-        if sessionState != .paused {
-            sessionElapsedSeconds = coordinator?.sessionElapsedSeconds ?? 0
-        }
+        guard sessionState == .capturing || sessionState == .paused,
+              let coordinator else { return }
+        sessionElapsedSeconds = coordinator.sessionElapsedSeconds
     }
 
     /// `HH:MM:SS`.
@@ -522,127 +489,6 @@ final class AppModel: ObservableObject {
         let minutes = (seconds % 3600) / 60
         let remaining = seconds % 60
         return String(format: "%02d:%02d:%02d", hours, minutes, remaining)
-    }
-
-    // MARK: - Pomodoro
-
-    var pomodoroPhaseText: String {
-        switch pomodoroPhase {
-        case .idle: return "Pomodoro"
-        case .work: return "Focus"
-        case .shortBreak: return "Short Break"
-        case .longBreak: return "Long Break"
-        }
-    }
-
-    var pomodoroProgress: Double {
-        let total = pomodoroPhaseDuration
-        guard total > 0 else { return 0 }
-        return pomodoroElapsedSeconds / total
-    }
-
-    var pomodoroPhaseDuration: TimeInterval {
-        switch pomodoroPhase {
-        case .idle: return 0
-        case .work: return settings.pomodoroWorkDuration
-        case .shortBreak: return settings.pomodoroShortBreakDuration
-        case .longBreak: return settings.pomodoroLongBreakDuration
-        }
-    }
-
-    var pomodoroRemainingText: String {
-        let remaining = max(0, pomodoroPhaseDuration - pomodoroElapsedSeconds)
-        return elapsedText(seconds: Int(remaining.rounded(.down)))
-    }
-
-    func startPomodoro() {
-        guard pomodoroPhase == .idle else { return }
-        pomodoroPhase = .work
-        pomodoroElapsedSeconds = 0
-        pomodoroCycleCount = 0
-        pomodoroTotalWorkSeconds = 0
-        pomodoroTotalBreakSeconds = 0
-        startPomodoroTimer()
-    }
-
-    func pausePomodoro() {
-        guard pomodoroPhase != .idle else { return }
-        stopPomodoroTimer()
-    }
-
-    func resumePomodoro() {
-        guard pomodoroPhase != .idle else { return }
-        startPomodoroTimer()
-    }
-
-    func resetPomodoro() {
-        stopPomodoroTimer()
-        pomodoroPhase = .idle
-        pomodoroElapsedSeconds = 0
-        pomodoroCycleCount = 0
-        pomodoroTotalWorkSeconds = 0
-        pomodoroTotalBreakSeconds = 0
-    }
-
-    func skipPomodoroPhase() {
-        advancePomodoroPhase()
-    }
-
-    private func startPomodoroTimer() {
-        pomodoroTimer?.invalidate()
-        pomodoroTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pomodoroTick()
-            }
-        }
-        isPomodoroRunning = true
-    }
-
-    private func stopPomodoroTimer() {
-        pomodoroTimer?.invalidate()
-        pomodoroTimer = nil
-        isPomodoroRunning = false
-    }
-
-    private func pomodoroTick() {
-        guard pomodoroPhase != .idle else {
-            stopPomodoroTimer()
-            return
-        }
-
-        pomodoroElapsedSeconds += 1
-
-        switch pomodoroPhase {
-        case .work:
-            pomodoroTotalWorkSeconds += 1
-        case .shortBreak, .longBreak:
-            pomodoroTotalBreakSeconds += 1
-        case .idle:
-            return
-        }
-
-        if pomodoroElapsedSeconds >= pomodoroPhaseDuration {
-            advancePomodoroPhase()
-        }
-    }
-
-    private func advancePomodoroPhase() {
-        if settings.pomodoroSoundEnabled {
-            NSSound.beep()
-        }
-
-        switch pomodoroPhase {
-        case .work:
-            pomodoroCycleCount += 1
-            let isLongBreak = pomodoroCycleCount % settings.pomodoroCyclesBeforeLongBreak == 0
-            pomodoroPhase = isLongBreak ? .longBreak : .shortBreak
-            pomodoroElapsedSeconds = 0
-        case .shortBreak, .longBreak:
-            pomodoroPhase = .work
-            pomodoroElapsedSeconds = 0
-        case .idle:
-            return
-        }
     }
 
     // MARK: - Library and report editing

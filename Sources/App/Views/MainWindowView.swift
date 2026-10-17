@@ -71,17 +71,18 @@ struct MainWindowView: View {
 
     // MARK: - Top bar
 
-    /// One row: tabs on the left, the focus console on the right. The console
-    /// holds session controls and the Pomodoro instrument side by side.
+    /// One row: the tab switcher on the left, the focus console on the right.
+    /// The switcher gives way first as the window narrows — labelled buttons
+    /// drop to icon-only before anything is clipped — while the console keeps
+    /// its intrinsic size so the session controls never squeeze or move.
     private var topBar: some View {
         HStack(spacing: 12) {
-            ForEach(MainTab.allCases) { tab in
-                tabButton(for: tab)
-            }
+            tabSwitcher
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 8)
 
-            FocusConsoleView(model: model, showsPomodoro: true)
+            FocusConsoleView(model: model)
+                .layoutPriority(1)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -91,15 +92,36 @@ struct MainWindowView: View {
         }
     }
 
-    private func tabButton(for tab: MainTab) -> some View {
+    /// The Library/Memory switcher. `ViewThatFits` shows the labelled buttons
+    /// while there is room for them and falls back to icon-only buttons when
+    /// the window is too narrow — the standard SwiftUI way to keep a bar
+    /// adaptive without hardcoded widths.
+    private var tabSwitcher: some View {
+        HStack(spacing: 4) {
+            ForEach(MainTab.allCases) { tab in
+                ViewThatFits(in: .horizontal) {
+                    tabButton(for: tab, showsTitle: true)
+                    tabButton(for: tab, showsTitle: false)
+                }
+            }
+        }
+    }
+
+    private func tabButton(for tab: MainTab, showsTitle: Bool) -> some View {
         Button {
             selectedTab = tab
         } label: {
-            Label(tab.rawValue, systemImage: tab.icon)
-                .font(.system(.body, weight: selectedTab == tab ? .semibold : .regular))
-                .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
+            HStack(spacing: 6) {
+                Image(systemName: tab.icon)
+                if showsTitle {
+                    Text(tab.rawValue)
+                }
+            }
+            .font(.system(.body, weight: selectedTab == tab ? .semibold : .regular))
+            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+            .lineLimit(1)
+            .padding(.horizontal, showsTitle ? 16 : 10)
+            .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
         .background(
@@ -107,6 +129,8 @@ struct MainWindowView: View {
             Color.accentColor.opacity(0.1) : Color.clear,
             in: RoundedRectangle(cornerRadius: 6)
         )
+        .help(tab.rawValue)
+        .accessibilityLabel(tab.rawValue)
     }
 
     // MARK: - Toolbar
@@ -116,32 +140,17 @@ struct MainWindowView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .status) {
-            HStack(spacing: 4) {
-                Image(systemName: "lock.shield.fill")
-                    .font(.caption)
-                    .foregroundStyle(.green)
-                Text("Zero-Trace")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.green)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.green.opacity(0.1), in: Capsule())
-            .help("Zero-Trace Mode Active: All screenshots & raw logs wiped after Day Brief generation.")
-        }
-
-        ToolbarItem(placement: .status) {
             if model.sessionState != .idle {
                 HStack(spacing: 6) {
                     Image(systemName: "record.circle.fill")
-                        .foregroundStyle(model.isSessionPaused ? .orange : .green)
+                        .foregroundStyle(model.sessionState == .paused ? .orange : .green)
                         .symbolEffect(.pulse, isActive: model.sessionState == .capturing)
-                    Text("\(model.isSessionPaused ? "Paused" : "Recording") · \(model.eventCount) events")
+                    Text("\(model.sessionState == .paused ? "Paused" : "Recording") · \(model.eventCount) events")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(model.isSessionPaused ? "Session paused" : "Recording"), \(model.eventCount) events captured")
+                .accessibilityLabel("\(model.sessionState == .paused ? "Session paused" : "Recording"), \(model.eventCount) events captured")
             }
         }
 

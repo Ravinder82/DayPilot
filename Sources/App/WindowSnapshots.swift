@@ -3,11 +3,12 @@ import AppKit
 /// Captures DayPilot's own windows as they are drawn in the running application.
 ///
 /// `--snapshot-windows <directory>` launches the real app, waits for its windows to
-/// draw, writes a PNG of each titled window, opens Settings the way ⌘, does, and
-/// captures that window too, then quits. Only the app's own drawing is captured, so
-/// no screen-recording permission is involved. `--snapshot-appearance light|dark`
-/// picks the appearance, and `--preview-fixtures` fills the main window with sample
-/// content so the layout can be judged without depending on any real session data.
+/// draw, writes a PNG of each titled window, walks the main window's tabs, opens
+/// Settings the way ⌘, does, and captures that window too, then quits. Only the
+/// app's own drawing is captured, so no screen-recording permission is involved.
+/// `--snapshot-appearance light|dark` picks the appearance, and `--preview-fixtures`
+/// fills the main window with sample content — a mid-session console included — so
+/// the layout can be judged without depending on any real session data.
 extension LaunchHarness {
 
     static var snapshotDirectory: String? {
@@ -45,25 +46,25 @@ extension LaunchHarness {
             NSApp.activate(ignoringOtherApps: true)
             print("Activation policy: \(NSApp.activationPolicy().rawValue) (0 = regular, Dock visible)")
 
-            // Capture main window - Library tab
+            // Capture the main window — Library tab.
             captureTitledWindows(to: directory, label: "\(appearance)-library")
 
-            // Switch to Memory tab and capture
+            // Switch to the Memory tab and capture.
             switchToMemoryTab()
             try? await Task.sleep(for: .seconds(1))
             captureTitledWindows(to: directory, label: "\(appearance)-memory")
 
-            // Start Pomodoro and capture
-            startPomodoroForCapture()
-            try? await Task.sleep(for: .seconds(1))
-            captureTitledWindows(to: directory, label: "\(appearance)-pomodoro")
-
-            // Open Settings and capture
+            // Open Settings and capture.
             openSettingsWindow()
             try? await Task.sleep(for: .seconds(2))
             captureTitledWindows(to: directory, label: "\(appearance)-settings")
 
-            NSApp.terminate(nil)
+            // The snapshot process is a tool, not a user session: nothing to
+            // close, nothing to flush, so exit directly. An unbundled process
+            // does not reliably reach the application delegate through
+            // `NSApp.terminate`, and this run must always end by itself.
+            print("Snapshot capture complete — exiting")
+            exit(EXIT_SUCCESS)
         }
     }
 
@@ -76,35 +77,6 @@ extension LaunchHarness {
                 clickTabButton(in: contentView, tabName: "Memory")
             }
         }
-    }
-
-    /// Starts Pomodoro for capture by clicking the toolbar button.
-    @MainActor
-    private static func startPomodoroForCapture() {
-        for window in NSApp.windows where window.isVisible && window.styleMask.contains(.titled) {
-            if let toolbar = window.toolbar {
-                for item in toolbar.items {
-                    if let view = item.view, let button = findButton(in: view, withTitle: "Start Pomodoro") {
-                        button.performClick(nil)
-                        return
-                    }
-                }
-            }
-        }
-    }
-
-    /// Recursively finds a button with the given title.
-    @MainActor
-    private static func findButton(in view: NSView, withTitle title: String) -> NSButton? {
-        if let button = view as? NSButton, button.title == title {
-            return button
-        }
-        for subview in view.subviews {
-            if let found = findButton(in: subview, withTitle: title) {
-                return found
-            }
-        }
-        return nil
     }
 
     /// Clicks the tab button with the given name in the tab bar.
@@ -155,8 +127,13 @@ extension LaunchHarness {
             // The frame view wraps the content view and also draws the title bar and
             // toolbar, so capturing it shows the window as the user sees it.
             let view = content.superview ?? content
-            window.displayIfNeeded()
+
+            // Layout first, then draw: a window that has just appeared (Settings)
+            // needs its subtrees positioned before `cacheDisplay` can render the
+            // list- and form-backed content SwiftUI builds on AppKit containers.
             view.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            view.displayIfNeeded()
 
             guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
             view.cacheDisplay(in: view.bounds, to: bitmap)

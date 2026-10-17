@@ -151,6 +151,11 @@ final class SessionCoordinator {
     private(set) var suppressedFrameCount = 0
     private(set) var sessionStartedAt: Date?
 
+    /// Wall-clock seconds spent paused in the current session, excluded from
+    /// `sessionElapsedSeconds` so the timer shows work time, not office time.
+    private var pausedAccumulatedSeconds: TimeInterval = 0
+    private var pauseStartedAt: Date?
+
     /// The debrief from the most recent session, so the status bar can show it
     /// or open it after the fact.
     private(set) var lastCompletion: SessionCompletion?
@@ -245,6 +250,8 @@ final class SessionCoordinator {
         let sessionId = await sessionStore.startSession()
         currentSessionId = sessionId
         sessionStartedAt = Date()
+        pausedAccumulatedSeconds = 0
+        pauseStartedAt = nil
         recordedEventCount = 0
         breadcrumbCount = 0
         suppressedFrameCount = 0
@@ -274,6 +281,7 @@ final class SessionCoordinator {
     /// Pauses the session without generating a debrief.
     func pause() async {
         guard state == .capturing else { return }
+        pauseStartedAt = Date()
         await captureEngine.stop()
         stopWatchdog()
         removeActivationObserver()
@@ -284,6 +292,10 @@ final class SessionCoordinator {
     /// Resumes a paused session.
     func resume() async {
         guard state == .paused else { return }
+        if let pauseStart = pauseStartedAt {
+            pausedAccumulatedSeconds += Date().timeIntervalSince(pauseStart)
+            pauseStartedAt = nil
+        }
         transition(to: .capturing)
         captureEngine.setSuppressed(Self.isFrontmostSurfaceSuppressed(windowManager: windowManager))
         installActivationObserver()
@@ -309,7 +321,7 @@ final class SessionCoordinator {
     /// explaining what happened rather than losing the session.
     @discardableResult
     func stop() async -> SessionCompletion {
-        guard state == .capturing, let sessionId = currentSessionId else {
+        guard state == .capturing || state == .paused, let sessionId = currentSessionId else {
             return lastCompletion ?? SessionCompletion(
                 sessionId: currentSessionId ?? "",
                 eventCount: recordedEventCount,
@@ -481,6 +493,8 @@ final class SessionCoordinator {
 
         currentSessionId = sessionId
         sessionStartedAt = startedAt
+        pausedAccumulatedSeconds = 0
+        pauseStartedAt = nil
         self.recordedEventCount = eventCount
         self.breadcrumbCount = breadcrumbCount
         self.suppressedFrameCount = suppressedFrameCount
@@ -489,10 +503,16 @@ final class SessionCoordinator {
         logger.notice("Attached to existing session \(sessionId, privacy: .public)")
     }
 
-    /// Elapsed wall-clock time of the current session, in seconds.
+    /// Elapsed work time of the current session, in seconds: wall clock minus
+    /// every paused stretch. It holds steady while paused and never jumps
+    /// forward on resume, so the console timer behaves like a stopwatch.
     var sessionElapsedSeconds: TimeInterval {
         guard let start = sessionStartedAt else { return 0 }
-        return Date().timeIntervalSince(start)
+        var elapsed = Date().timeIntervalSince(start) - pausedAccumulatedSeconds
+        if let pauseStart = pauseStartedAt {
+            elapsed -= Date().timeIntervalSince(pauseStart)
+        }
+        return max(0, elapsed)
     }
 
     // MARK: - Synthesis

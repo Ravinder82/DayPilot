@@ -443,15 +443,20 @@ enum LaunchHarness {
 
         banner("[7/7] Report summary")
 
-        if completion.voiceScript.isEmpty {
-            print("  No voice script was produced.")
+        if completion.reportMarkdown.isEmpty {
+            print("  No brief was produced.")
+            if let reason = completion.synthesisFailureReason {
+                print("  Reason: \(reason)")
+            }
         } else {
-            print("  Voice script: \(completion.voiceScript.count) characters")
-            let preview = completion.voiceScript
-                .split(separator: ".", omittingEmptySubsequences: true)
-                .prefix(2)
-                .joined(separator: ". ") + "."
-            print("  Preview: \(preview)")
+            let lines = completion.reportMarkdown
+                .split(separator: "\n", omittingEmptySubsequences: false)
+                .count
+            let title = completion.reportMarkdown
+                .split(separator: "\n", omittingEmptySubsequences: true)
+                .first.map(String.init) ?? "(untitled)"
+            print("  \(title)")
+            print("  \(lines) lines · \(completion.reportMarkdown.count) characters")
         }
 
         // The sandbox is left in place on purpose: it holds the SQLite database,
@@ -684,7 +689,7 @@ enum LaunchHarness {
         // Transient AI chats (discarded insights)
         let aiChatEvents = [
             ("Google Chrome", "com.google.Chrome", "ChatGPT — brainstorm", true,
-             "How to implement a Pomodoro timer in SwiftUI with circular progress ring and phase transitions"),
+             "How to implement a circular progress ring in SwiftUI with animated trim"),
             ("Google Chrome", "com.google.Chrome", "Claude — code review", true,
              "Review this Swift code for memory leaks: class Foo { var bar: Bar? }"),
             ("Google Chrome", "com.google.Chrome", "Gemini — research", true,

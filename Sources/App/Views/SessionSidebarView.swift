@@ -71,11 +71,11 @@ private struct LiveSessionRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: "record.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(model.sessionState == .paused ? .orange : .green)
                 .symbolEffect(.pulse, isActive: model.sessionState == .capturing)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(model.sessionState == .capturing ? "Capturing" : "Writing debrief")
+                Text(liveStatusText)
                     .font(.headline)
                 Text(model.elapsedClockText)
                     .font(.caption.monospacedDigit())
@@ -84,6 +84,14 @@ private struct LiveSessionRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
+    }
+
+    private var liveStatusText: String {
+        switch model.sessionState {
+        case .paused: return "Paused"
+        case .synthesising: return "Writing debrief"
+        default: return "Capturing"
+        }
     }
 }
 
