@@ -21,7 +21,7 @@ enum DayPilotConfiguration {
 
     /// Seconds between frame samples. Applied as SCK's `minimumFrameInterval`
     /// so the scheduler, not a polling timer, controls cadence.
-    static let captureIntervalSeconds: TimeInterval = 15
+    static let captureIntervalSeconds: TimeInterval = 2
 
     /// Resolution of the grayscale grid sampled for the perceptual gate.
     static let thumbnailResolution = 64
@@ -64,7 +64,16 @@ enum DayPilotConfiguration {
     static let reportsDirectoryName = "Reports"
 
     /// Sessions shorter than this are not worth a synthesis call.
-    static let minimumSessionSecondsForSynthesis = 5
+    static let minimumSessionSecondsForSynthesis = 0
+
+    /// Sessions below this length are probes, not workdays: DayPilot skips the
+    /// model call and archives a two-line note instead of a padded briefing.
+    static let probeSessionSeconds: TimeInterval = 120
+
+    /// A session this short with at most `probeSessionMaxEvents` events had
+    /// nothing on screen; it is a probe too.
+    static let probeSessionMaxEventsWindow: TimeInterval = 300
+    static let probeSessionMaxEvents = 2
 
     /// Token ceiling sent to the provider for one debrief. One day of pruned
     /// telemetry plus the standing rules sits comfortably under this.
@@ -79,13 +88,19 @@ enum DayPilotConfiguration {
     /// Screen capture and OCR are suppressed outright while any of these owns
     /// the keyboard focus. Capturing a password manager's window is never
     /// worth the risk, so these are enforced before pixels are touched.
-    static let sensitiveBundleIdentifiers: Set<String> = [
-        "com.1password.1password",
-        "com.agilebits.onepassword7",
-        "com.apple.keychainaccess",
-        "com.apple.MobileSMS",
-        "com.apple.FaceTime"
-    ]
+    static var sensitiveBundleIdentifiers: Set<String> {
+        // Read from onboarding preferences, fall back to defaults
+        if let stored = UserDefaults.standard.array(forKey: "onboarding.sensitiveBundleIDs") as? [String], !stored.isEmpty {
+            return Set(stored)
+        }
+        return [
+            "com.1password.1password",
+            "com.agilebits.onepassword7",
+            "com.apple.keychainaccess",
+            "com.apple.MobileSMS",
+            "com.apple.FaceTime"
+        ]
+    }
 
     /// `fnmatch` glob patterns matched against window titles and the browser
     /// address bar, to catch sensitive surfaces that have no known bundle ID.

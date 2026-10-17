@@ -43,8 +43,7 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("ScreenCaptureKit"),
                 .linkedFramework("Vision"),
-                .linkedFramework("AVFoundation"),
-                .linkedFramework("AppKit"),
+                    .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
                 .linkedFramework("CoreGraphics"),
                 .linkedLibrary("sqlite3")

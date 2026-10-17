@@ -54,7 +54,8 @@ enum KeychainManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: provider
+            kSecAttrAccount as String: provider,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
 
         let attributes: [String: Any] = [
@@ -72,6 +73,7 @@ enum KeychainManager {
 
         var item: [String: Any] = query
         item.merge(attributes) { current, _ in current }
+        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
 
         let status = SecItemAdd(item as CFDictionary, nil)
         if status == errSecSuccess { return true }
@@ -107,7 +109,8 @@ enum KeychainManager {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: provider
+            kSecAttrAccount as String: provider,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound

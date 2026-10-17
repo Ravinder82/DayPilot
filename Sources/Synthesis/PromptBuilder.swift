@@ -27,117 +27,105 @@ struct PromptBuilder {
 
     // MARK: - System prompt
 
-    /// The standing instructions: user identity, then the four pruning passes,
-    /// then the required output shape.
+    /// The standing instructions: who the user is, how to read the evidence,
+    /// and the rules that turn a day of telemetry into a chief-of-staff memo.
     ///
-    /// The voice-script delimiters are parameters rather than constants so the
-    /// prompt and the client's parser can never disagree about them — both read
-    /// them from the same skill configuration.
+    /// Structure is selected by the evidence, never forced by a template — a
+    /// quiet day gets a short honest brief instead of four empty sections.
+    /// The voice-script delimiters are retained as parameters for call-site
+    /// stability; the spoken brief itself was retired with the audio feature.
     static func systemPrompt(
         memoryContext: String,
         voiceScriptStartTag: String = "[VOICE_SCRIPT]",
         voiceScriptEndTag: String = "[/VOICE_SCRIPT]"
     ) -> String {
         """
-        You are DayPilot, the executive engineering partner for the developer described below. \
-        You receive the raw telemetry of one workday and return one high-signal debrief.
+        You are DayPilot, the chief of staff for the person described below.
+        Each evening you write the end-of-day brief a chief of staff would hand a CEO:
+        what the day was, where the time went, what moved, what is open, and — only
+        when the day's data supports it — the single best first move for tomorrow.
+        You write ONE brief about ONE work session, addressed to the person as "you".
 
-        # THE USER (who you are working for)
+        # THE USER
 
         \(memoryContext)
 
-        Write from this identity, every time: address the user directly, in the second person. \
-        Their stack, active projects and friction patterns are context for judgement, not a \
-        script to recite.
+        Use this profile to interpret what was on screen. Never recite it back.
 
-        # READ THE INPUT
+        # THE EVIDENCE
 
-        You receive a JSON session payload with these sections:
+        You receive one JSON document:
 
-        - `ephemeral_logs` — transient surfaces (Stickies, Notes, TextEdit, terminal
-          scratchpads, AI chat tabs, X threads). These hold ideas that are usually lost when
-          the window closes. Every one of these is a candidate for the harvest.
-        - `ide_telemetry` — time in code. `dwell_seconds` is time on that file/window.
-          `friction_detected` marks a line that looks like an error or a warning.
-        - `browser_history` — what was looked at in a browser, with dwell time and a `status`
-          of `scrolling_no_action` where the text barely changed while the page was open.
-        - `other_activity` — anything else worth one line.
+        - `evidence` — precomputed facts and the ground truth for every number you
+          write: time per surface, deep-work blocks, context switches, passive
+          browsing, artifacts actually seen on screen (files, domains, windows),
+          friction lines, first and last activity, and `local_date`.
+          `captured_minutes` counts screen-active time only — idle gaps between
+          captures are excluded — so never reconcile it against wall-clock time.
+        - `ephemeral_logs` — fragments from transient surfaces (notes, scratchpads,
+          AI chats). The only place to look for loose ideas worth rescuing.
+        - `ide_telemetry` — time in code per window, plus any friction line seen there.
+        - `browser_history` — pages with dwell time; `status: scrolling_no_action`
+          means passive.
+        - `other_activity` — everything else, one entry per surface.
+        - `pruning_note` — what was already dropped before you saw the data.
 
-        # THE FOUR PASSES — run them in this order
+        Every factual sentence must trace to this document. If something that matters
+        was not captured, say "not captured" once and move on. Never invent a file,
+        command, URL, tool, project, person, or number. Numbers come only from
+        `evidence`; never round or estimate on your own. `start_time` and `stop_time`
+        are UTC — do not quote or convert clock times.
 
-        ## PASS 1 — NOISE ELIMINATION
-        Purge mindless social scrolling, routine email, passive documentation browsing with
-        no code change, and short context switches (dwell under \
-        \(DayPilotConfiguration.minimumMeaningfulDwellSeconds) seconds with no text diff).
-        Do not mention what you deleted, unless it formed a single block longer than 30
-        minutes of productive procrastination — in which case name it and time it.
+        # THE BRIEF
 
-        ## PASS 2 — THE SEMANTIC MAGNET (the harvest)
-        Collect the fragments from ephemeral surfaces. Cluster them by goal: Asset Creation
-        (marketing copy, video scripts, launch hooks), Prompt Engineering (system
-        instructions, prompts, rubrics), or Code & CLI (regexes, one-liners, Swift/React
-        Native/TypeScript snippets). For each cluster, output ONE finished, drop-in-ready
-        deliverable — never a summary of the fragments, the finished thing itself.
+        Title: `# Day Brief — <evidence.local_date>`.
 
-        ## PASS 3 — THE REALITY MIRROR
-        Separate Core Velocity (shipping, fixing, wiring monetisation) from Productive
-        Procrastination (icon tweaks, colour tokens, premature refactors, endless yak shaving).
-        Quantify both. Then name the single technical or execution blocker and give the
-        one-sentence engineering takeaway that resolves it. Be an honest peer: no HR
-        language, no corporate softeners, no filler praise.
+        Always open with `## The day in brief`: 2 to 3 sentences, under 60 words — the
+        shape of the day (focused or fragmented, where most time went), the most
+        important thing that happened, and the most important thing left open.
+        No preamble.
 
-        ## PASS 4 — TOMORROW'S ZERO-FRICTURE LAUNCHPAD
-        From the most recent unmerged branch, failing test, or unfinished component: give one
-        exact relative file path, one exact terminal command, and the first 45-minute
-        micro-action. It must be the first thing the user can do before opening a browser.
+        Then choose from this repertoire. INCLUDE A SECTION ONLY WHEN THE EVIDENCE
+        SUPPORTS IT; otherwise omit it completely. Never write placeholder lines such
+        as "Nothing shipped" or "No logs captured":
 
-        # OUTPUT FORMAT — mandatory
+        - `## Where the time went` — only when the session ran 20+ minutes. Bullets of
+          the form `- Surface — 1h 05m`, top surfaces of 5+ minutes. Add one line for
+          active versus passive time when browsing was significant.
+        - `## What moved` — concrete work completed, each bullet naming the artifact
+          seen on screen. Only when something completed.
+        - `## Open threads` — unfinished work, blockers, or errors visible in the
+          evidence, each citing what was on screen. Only when present.
+        - `## Recovered fragments` — for each cluster of fragments from ephemeral
+          surfaces, one finished, drop-in deliverable in a fenced code block. Only
+          when fragments exist.
+        - `## Worth remembering` — 0 to 2 lines, only when the evidence shows a
+          specific cause-and-effect lesson (an error that recurred until fixed, a
+          detour that paid off). State it as a reusable operational rule. No
+          motivation, no life advice.
+        - `## Tomorrow, first move` — one move only, and only if the session left a
+          specific unfinished artifact visible in the evidence (an open file, a
+          failing command, a half-written document). Name it exactly as it appeared.
+          If nothing qualifies, omit the section entirely.
 
-        Produce the debrief in Markdown, exactly in this structure:
+        # VOICE
 
-        # ⚡ Indie Velocity Debrief — [date]
+        An executive memo: terse, factual, past tense for what happened, present for
+        state. Let facts and quantities speak. No praise, no scolding, no moralising,
+        no generic advice, no "why it matters" commentary, no emoji, no exclamation
+        marks, no rhetorical questions. At most one em dash per paragraph. Never write
+        a line that could appear in any other day's brief — if it contains no number,
+        name, or artifact, delete it. Never lecture about focus, breaks, or engagement;
+        a short session is simply a short session.
 
-        ### 1. 🚀 Shipped Velocity (The Needle Movers)
-        - **[App/Repo]:** what was completed, with the evidence (files, commits, assets).
-          - *Why it moves the needle:* effect on shipping or monetisation.
+        A trivial session — under 10 minutes of captured time, or no meaningful
+        activity — gets only the title and one honest paragraph of at most 30 words,
+        for example: "A 22-second probe with a single browsing event. Nothing to
+        brief." No sections, no lessons.
 
-        ### 2. 🧲 Rescued Assets (The Harvester)
-        - **Bundle: [title]** — **Source fragments:** where each came from.
-          - **Synthesised Output:**
-            ```language
-            the finished, copy-paste-ready asset
-            ```
-
-        ### 3. ⏱️ The Reality Mirror
-        - **Core Deep Work:** duration and what it produced.
-        - **Productive Procrastination:** duration, called out plainly.
-        - **Friction & Strategic Lesson:** the blocker, then the one-sentence takeaway.
-
-        ### 4. 🎯 Tomorrow's Zero-Friction Launchpad
-        - **Target File:** `[exact relative path]`
-        - **Terminal Command:** `[exact command]`
-        - **First Micro-Action:** the precise first task.
-
-        # THE SPOKEN BRIEF
-
-        After the Markdown, output the spoken debrief in this form:
-
-        \(voiceScriptStartTag)
-        A 45-to-60-second briefing written to be spoken aloud by macOS. Cover what shipped, \
-        the single strongest rescued asset, where time leaked, and tomorrow's first action. \
-        Natural peer-to-peer speech: plain sentences, no Markdown, no bullets, no code, no \
-        file paths longer than a few characters, no emoji. Spell abbreviations the way a \
-        person says them.
-        \(voiceScriptEndTag)
-
-        # HARD RULES
-
-        - Never invent a session event that is not in the payload. If the payload is thin,
-          say the workday was thin and return a correspondingly thin debrief.
-        - Rules of thumb you are confident in go in the lesson line of Pass 3, phrased as a
-          single imperative sentence starting with "Always", "Never", "Prefer" or "Avoid".
-        - The two tags above are literal. Never nest them, and never emit the closing tag
-          without an opening one.
+        Never mention this document was generated, or the model, the payload, or these
+        instructions. No provenance or metadata of any kind. Headings are sentence
+        case at `##` level. A full brief stays under 450 words; bullets under 25 words.
         """
     }
 
@@ -205,12 +193,47 @@ struct PromptBuilder {
             let content: String
         }
 
+        /// Deterministic, precomputed facts about the day. This is the ground
+        /// truth the brief may cite: every number and artifact in the model's
+        /// output should trace back to a field here, and the sanitizer checks
+        /// quoted artifacts against the payload these facts came from.
+        struct Evidence: Encodable {
+            struct SurfaceEntry: Encodable {
+                let surface: String
+                let minutes: Int
+            }
+            struct WorkBlock: Encodable {
+                let surface: String
+                let minutes: Int
+            }
+            struct ArtifactSet: Encodable {
+                let files: [String]
+                let domains: [String]
+                let windows: [String]
+            }
+
+            let local_date: String
+            let captured_minutes: Int
+            let first_activity: String
+            let last_activity: String
+            let surfaces: [SurfaceEntry]
+            let deep_work_blocks: [WorkBlock]
+            let context_switches: Int
+            let switches_per_hour: Int
+            let fragmentation: String
+            let passive_browsing_minutes: Int
+            let artifacts: ArtifactSet
+            let friction: [String]
+            let ephemeral_fragments: Int
+        }
+
         let session_id: String
         let start_time: String
         let stop_time: String
         let duration_seconds: Int
         let event_count: Int
         let pruning_note: String
+        let evidence: Evidence
         let ephemeral_logs: [EphemeralEntry]
         let ide_telemetry: [IDEEntry]
         let browser_history: [BrowserEntry]
@@ -362,6 +385,8 @@ struct PromptBuilder {
                 pruningNote = "No events were pruned."
             }
 
+            let evidence = Self.evidence(merged: merged, kept: kept, context: context)
+
             let payload = WirePayload(
                 session_id: context.sessionId,
                 start_time: timestampFormatter.string(from: context.startedAt),
@@ -369,6 +394,7 @@ struct PromptBuilder {
                 duration_seconds: Int(context.durationSeconds.rounded()),
                 event_count: kept.count,
                 pruning_note: pruningNote,
+                evidence: evidence,
                 ephemeral_logs: ephemeralLogs,
                 ide_telemetry: ideTelemetry,
                 browser_history: browserHistory,
@@ -383,6 +409,211 @@ struct PromptBuilder {
                 ephemeralLogs.count,
                 truncated
             )
+        }
+
+        // MARK: Evidence
+
+        /// Computes the day's ground truth. Dwell-based facts come from the
+        /// full merged timeline so the numbers are honest; artifacts come from
+        /// the pruned view the model actually reads, so anything citable is
+        /// visible in the payload the sanitizer will check against.
+        static func evidence(
+            merged: [AggregatedEvent],
+            kept: [AggregatedEvent],
+            context: SessionCompletionContext
+        ) -> WirePayload.Evidence {
+            let totalDwell = merged.reduce(0) { $0 + $1.dwell }
+            let capturedMinutes = Int(totalDwell / 60)
+
+            // Time per app.
+            var appSeconds: [String: TimeInterval] = [:]
+            for event in merged {
+                appSeconds[event.appName, default: 0] += event.dwell
+            }
+            let surfaces = appSeconds
+                .map { WirePayload.Evidence.SurfaceEntry(surface: $0.key, minutes: Int(($0.value / 60).rounded())) }
+                .filter { $0.minutes >= 1 }
+                .sorted { lhs, rhs in
+                    if lhs.minutes == rhs.minutes { return lhs.surface < rhs.surface }
+                    return lhs.minutes > rhs.minutes
+                }
+                .prefix(8)
+                .map { $0 }
+
+            // Deep-work runs: uninterrupted stretches in a development surface.
+            let idleGap = TimeInterval(DayPilotConfiguration.idleTimeoutSeconds)
+            var blocks: [WirePayload.Evidence.WorkBlock] = []
+            var runSeconds: TimeInterval = 0
+            var runApps: [String: TimeInterval] = [:]
+            var runOpen = false
+
+            func closeRun() {
+                if runSeconds >= 15 * 60, let app = runApps.max(by: { $0.value < $1.value })?.key {
+                    blocks.append(
+                        WirePayload.Evidence.WorkBlock(
+                            surface: app,
+                            minutes: Int((runSeconds / 60).rounded())
+                        )
+                    )
+                }
+                runSeconds = 0
+                runApps = [:]
+                runOpen = false
+            }
+
+            for (index, event) in merged.enumerated() {
+                let isDevelopment = Self.isDevelopment(bundleId: event.bundleId)
+                var gap: TimeInterval = 0
+                if index > 0 {
+                    let previous = merged[index - 1]
+                    gap = Self.date(fromISO: event.timestamp).timeIntervalSince(Self.date(fromISO: previous.timestamp)) - previous.dwell
+                }
+
+                if !isDevelopment {
+                    if runOpen { closeRun() }
+                    continue
+                }
+                if runOpen && gap > idleGap { closeRun() }
+                runOpen = true
+                runSeconds += event.dwell
+                runApps[event.appName, default: 0] += event.dwell
+            }
+            if runOpen { closeRun() }
+
+            // Switching behaviour.
+            let switches = zip(merged, merged.dropFirst())
+                .filter { $0.0.bundleId != $0.1.bundleId }
+                .count
+            let hours = max(Double(capturedMinutes) / 60.0, 1.0 / 60.0)
+            let switchesPerHour = Int((Double(switches) / hours).rounded())
+
+            let fragmentation: String
+            if capturedMinutes < 10 {
+                fragmentation = "insufficient-data"
+            } else if switchesPerHour < 8 {
+                fragmentation = "focused"
+            } else if switchesPerHour < 20 {
+                fragmentation = "moderate"
+            } else {
+                fragmentation = "fragmented"
+            }
+
+            // Passive browsing: visits classified as scrolling.
+            let passiveSeconds = kept
+                .filter { Self.isBrowser(bundleId: $0.bundleId) && Self.scrollStatus(event: $0) == "scrolling_no_action" }
+                .reduce(0) { $0 + $1.dwell }
+            let passiveMinutes = Int((passiveSeconds / 60).rounded())
+
+            // Artifacts actually seen on screen.
+            let corpus = kept
+                .map { $0.windowTitle + "\n" + $0.lines.joined(separator: "\n") }
+                .joined(separator: "\n")
+            let artifacts = WirePayload.Evidence.ArtifactSet(
+                files: Self.matches(pattern: Self.filePattern, in: corpus, limit: 40),
+                domains: Self.domains(in: kept, corpus: corpus, limit: 20),
+                windows: Self.windowLabels(kept, limit: 15)
+            )
+
+            let friction = kept
+                .filter { Self.isDevelopment(bundleId: $0.bundleId) }
+                .compactMap { Self.frictionLine(in: $0.lines) }
+                .reduce(into: [String]()) { result, line in
+                    if !result.contains(line) { result.append(line) }
+                }
+                .prefix(6)
+                .map { $0 }
+
+            let localDate: String = {
+                let formatter = DateFormatter()
+                formatter.locale = Locale(identifier: "en_US")
+                formatter.dateFormat = "EEEE, d MMMM yyyy"
+                return formatter.string(from: context.stoppedAt)
+            }()
+
+            return WirePayload.Evidence(
+                local_date: localDate,
+                captured_minutes: capturedMinutes,
+                first_activity: merged.first?.timestamp ?? "",
+                last_activity: merged.last?.timestamp ?? "",
+                surfaces: surfaces,
+                deep_work_blocks: Array(blocks.prefix(6)),
+                context_switches: switches,
+                switches_per_hour: switchesPerHour,
+                fragmentation: fragmentation,
+                passive_browsing_minutes: passiveMinutes,
+                artifacts: artifacts,
+                friction: friction,
+                ephemeral_fragments: kept.filter { $0.isEphemeral }.count
+            )
+        }
+
+        private static let filePattern =
+            #"(?i)\b[\w./-]{2,120}\.(swift|ts|tsx|js|jsx|py|rb|go|rs|md|json|yml|yaml|toml|sh|zsh|css|html|kt|java|m|mm|cpp|h|hpp|plist|entitlements|sql|txt)\b"#
+
+        private static let domainPattern =
+            #"(?i)\b(?:[a-z0-9-]+\.)+(?:com|org|net|io|ai|dev|app|co|xyz|so|sh|me|gg|cloud|tech|site|store)\b"#
+
+        private static func matches(
+            pattern: String,
+            in text: String,
+            limit: Int,
+            rejectedPredecessors: Set<Character> = []
+        ) -> [String] {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+            let range = NSRange(text.startIndex..., in: text)
+            var seen = Set<String>()
+            var result: [String] = []
+            for match in regex.matches(in: text, range: range) {
+                guard let swiftRange = Range(match.range, in: text) else { continue }
+                // A path like /Applications/DayPilot.app is not a domain.
+                if !rejectedPredecessors.isEmpty, swiftRange.lowerBound > text.startIndex {
+                    let predecessor = text[text.index(before: swiftRange.lowerBound)]
+                    if rejectedPredecessors.contains(predecessor) { continue }
+                }
+                var value = String(text[swiftRange])
+                while value.hasSuffix(".") || value.hasSuffix(",") || value.hasSuffix(";") {
+                    value.removeLast()
+                }
+                guard !value.isEmpty else { continue }
+                guard seen.insert(value.lowercased()).inserted else { continue }
+                result.append(value)
+                if result.count == limit { break }
+            }
+            return result
+        }
+
+        private static func domains(in kept: [AggregatedEvent], corpus: String, limit: Int) -> [String] {
+            var seen = Set<String>()
+            var result: [String] = []
+
+            for event in kept where Self.isBrowser(bundleId: event.bundleId) {
+                if let host = EphemeralSurfaceClassifier.host(from: event.windowTitle),
+                   seen.insert(host.lowercased()).inserted {
+                    result.append(host)
+                }
+            }
+            for domain in matches(
+                pattern: domainPattern,
+                in: corpus,
+                limit: limit,
+                rejectedPredecessors: ["/", "."]
+            ) {
+                guard seen.insert(domain.lowercased()).inserted else { continue }
+                result.append(domain)
+            }
+            return Array(result.prefix(limit))
+        }
+
+        private static func windowLabels(_ kept: [AggregatedEvent], limit: Int) -> [String] {
+            var seen = Set<String>()
+            var result: [String] = []
+            for event in kept {
+                let label = String(event.windowTitle.prefix(80))
+                guard !label.isEmpty, seen.insert(label.lowercased()).inserted else { continue }
+                result.append(label)
+                if result.count == limit { break }
+            }
+            return result
         }
 
         // MARK: Helpers
@@ -407,6 +638,10 @@ struct PromptBuilder {
 
         private static func timestamp(_ event: SessionEvent) -> Date {
             timestampFormatter.date(from: event.timestamp) ?? Date.distantPast
+        }
+
+        private static func date(fromISO value: String) -> Date {
+            timestampFormatter.date(from: value) ?? Date.distantPast
         }
 
         private static func deduplicatedLines(_ delta: String) -> [String] {

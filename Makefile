@@ -15,6 +15,7 @@ APPBUNDLE   := $(PRODUCT).app
 DIST_DIR    := dist
 APP_PATH    := $(DIST_DIR)/$(APPBUNDLE)
 ICNS        := Resources/AppIcon.icns
+SIGNING_IDENTITY := 96302F2E3A8FCA75B4D03A5F464BC1B5AEA57D04
 
 .DEFAULT_GOAL := help
 
@@ -41,9 +42,16 @@ setup:
 build:
 	swift build -c release --product $(PRODUCT)
 
-# Packages the app, then opens the signed bundle the way a user would open it.
+# Packages the app, installs to /Applications, signs consistently, and launches
+# as a standalone app (not a child process of the terminal/IDE).
 run: package
-	@open "$(APP_PATH)"
+	@osascript -e 'tell application id "com.daypilot.app" to quit' 2>/dev/null || true
+	@rm -rf /Applications/$(APPBUNDLE)
+	@ditto $(APP_PATH) /Applications/$(APPBUNDLE)
+	@codesign --force --sign $(SIGNING_IDENTITY) --entitlements Resources/DayPilot.entitlements /Applications/$(APPBUNDLE)
+	@echo "Installed and signed /Applications/$(APPBUNDLE) with Apple Development identity"
+	@open -n /Applications/$(APPBUNDLE)
+
 
 selftest: build
 	@exec $(BINARY) --selftest
@@ -66,12 +74,13 @@ package:
 
 # Copies the packaged app into /Applications, where Launchpad, Spotlight and the
 # Screen Recording list find it. A running copy is quit first, so the replacement
-# is never written underneath it.
+# is never written underneath it. Signs consistently with ad-hoc identity.
 install: package
-	@osascript -e 'if application id "com.daypilot.app" is running then tell application id "com.daypilot.app" to quit' >/dev/null 2>&1 || true
-	@rm -rf "/Applications/$(APPBUNDLE)"
-	@ditto "$(APP_PATH)" "/Applications/$(APPBUNDLE)" || { echo 'install failed'; exit 1; }
-	@printf '\n%s\n' "Installed /Applications/$(APPBUNDLE). Open it from Launchpad or Spotlight."
+	@osascript -e 'tell application id "com.daypilot.app" to quit' 2>/dev/null || true
+	@rm -rf /Applications/$(APPBUNDLE)
+	@ditto $(APP_PATH) /Applications/$(APPBUNDLE)
+	@codesign --force --sign $(SIGNING_IDENTITY) --entitlements Resources/DayPilot.entitlements /Applications/$(APPBUNDLE)
+	@echo "Installed /Applications/$(APPBUNDLE) with Apple Development identity"
 
 clean:
 	rm -rf .build .swiftpm $(DIST_DIR)

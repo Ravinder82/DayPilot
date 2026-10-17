@@ -268,11 +268,25 @@ private final class FrameSampleHandler: NSObject, SCStreamOutput, SCStreamDelega
             return
         }
 
-        // The first frame of a session only establishes what "unchanged" looks
-        // like; there is nothing yet to diff against.
+        // The first frame establishes the baseline AND is processed for OCR,
+        // so even a very short session captures readable text.
         guard let previous = previousThumbnail else {
             previousThumbnail = snapshot
             statistics.update { $0.framesBaseline += 1 }
+            // Process the first frame immediately for OCR instead of dropping it.
+            if let image = makeCGImage(from: pixelBuffer) {
+                onSignificantFrame(
+                    ScreenFrame(
+                        image: image,
+                        timestamp: Date(),
+                        displayIdentifier: displayIdentifier,
+                        pixelWidth: CVPixelBufferGetWidth(pixelBuffer),
+                        pixelHeight: CVPixelBufferGetHeight(pixelBuffer),
+                        frameDelta: 1.0,
+                        hashSimilarity: 0.0
+                    )
+                )
+            }
             return
         }
         previousThumbnail = snapshot

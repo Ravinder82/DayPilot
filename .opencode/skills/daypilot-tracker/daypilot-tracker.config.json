@@ -87,10 +87,10 @@
     "default_provider": "google_ai_studio",
     "providers": {
       "google_ai_studio": {
-        "label": "Google AI Studio (Gemini 2.0 Flash)",
+        "label": "Google AI Studio (Gemini)",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "api_key_env": "GEMINI_API_KEY",
-        "model": "gemini-2.0-flash",
+        "model": "gemini-2.5-flash",
         "temperature": 0.3,
         "max_context_window": 1048576,
         "cost_per_million_input": 0.0,

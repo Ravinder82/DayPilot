@@ -2,6 +2,7 @@ import ApplicationServices
 import CoreGraphics
 import Darwin
 import Foundation
+import ScreenCaptureKit
 import os
 
 /// One capability probe run during the DayPilot launch health check.
@@ -72,16 +73,64 @@ enum SystemHealth {
     // MARK: - Probes
 
     /// Runs every probe in reporting order.
-    static func evaluate() -> [SystemCheck] {
+    static func evaluate() async -> [SystemCheck] {
         [
             operatingSystemCheck(),
             architectureCheck(),
             neuralEngineCheck(),
             computeCheck(),
             screenCaptureKitCheck(),
-            screenCapturePermissionCheck(),
+            await screenCapturePermissionCheck(),
             accessibilityPermissionCheck(),
+            briefHygieneCheck(),
         ]
+    }
+
+    /// Drives a deliberately awful brief through the sanitizer and checks that
+    /// emoji, placeholder sections, canned phrases, and invented artifacts are
+    /// all stripped — the last line of defence between the model and the
+    /// user's desk.
+    private static func briefHygieneCheck() -> SystemCheck {
+        let dirty = """
+        # ⚡ Indie Velocity Debrief — 2026-10-17
+
+        ### 1. 🚀 Shipped Velocity (The Needle Movers)
+        - Nothing shipped in this session.
+
+        ### 2. 🧠 The Reality Mirror
+        - Let's delve into the blockers. No ephemeral logs were captured in this session.
+
+        ### 3. 🎯 Tomorrow's Zero-Friction Launchpad
+        - **Target File:** `DayPilotApp.swift`
+        - **Command:** `open DayPilot.xcodeproj`
+        """
+
+        let cleaned = BriefSanitizer.sanitize(
+            reportMarkdown: dirty,
+            payloadCorpus: "{\"session_id\":\"check\",\"note\":\"nothing was on screen\"}",
+            date: Date(timeIntervalSince1970: 0)
+        )
+
+        let lowered = cleaned.lowercased()
+        let failures = [
+            cleaned.contains("⚡") || cleaned.contains("🚀") || cleaned.contains("🧠") || cleaned.contains("🎯"),
+            lowered.contains("nothing shipped"),
+            lowered.contains("delve"),
+            lowered.contains("no ephemeral logs"),
+            lowered.contains("daypilotapp.swift"),
+            lowered.contains("xcodeproj"),
+            !cleaned.hasPrefix("# Day Brief — "),
+        ]
+        let passed = !failures.contains(true)
+
+        return SystemCheck(
+            title: "Brief hygiene",
+            detail: passed
+                ? "emoji, placeholder sections, canned phrases and fabricated artifacts never reach a report"
+                : "the sanitizer failed a synthetic slop case",
+            severity: passed ? .pass : .failure,
+            isRequired: true
+        )
     }
 
     private static func operatingSystemCheck() -> SystemCheck {
@@ -151,10 +200,16 @@ enum SystemHealth {
         )
     }
 
-    private static func screenCapturePermissionCheck() -> SystemCheck {
-        // Preflight reads TCC state only; it never raises a prompt, so the
-        // first real request happens when the capture session starts.
-        let granted = CGPreflightScreenCaptureAccess()
+    private static func screenCapturePermissionCheck() async -> SystemCheck {
+        // Use a live probe instead of CGPreflightScreenCaptureAccess(), which
+        // can return stale false values after a rebuild with a new signature.
+        let granted: Bool
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            granted = !content.displays.isEmpty
+        } catch {
+            granted = false
+        }
 
         return SystemCheck(
             title: "Screen capture permission",

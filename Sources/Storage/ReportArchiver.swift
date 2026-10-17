@@ -10,6 +10,9 @@ struct SynthesisOutcome: Sendable, Equatable {
     let temperature: Double
     let promptCharacters: Int
     var rulesHarvested: [String]
+    /// True when the "report" is DayPilot's own two-line probe note and no
+    /// model was called.
+    var isProbe: Bool = false
 }
 
 /// Writes the finished debrief to disk and folds what it learned back into
@@ -103,7 +106,7 @@ final class ReportArchiver {
                 **Duration:** \(Self.durationDescription(seconds: Int(context.durationSeconds.rounded())))
                 **Events captured:** \(context.eventCount) (\(context.breadcrumbCount) ephemeral)
 
-                Re-run the debrief once the cause is resolved; the raw session is still intact.
+                Raw session data has been purged per Zero-Trace Mode. Only this report remains.
                 """,
                 voiceScript: "",
                 providerLabel: "unavailable",
@@ -135,6 +138,48 @@ final class ReportArchiver {
         }
     }
 
+    /// Records a probe session: too small to brief, so no model was called.
+    func recordProbeSession(context: SessionCompletionContext) async -> ArchiveOutcome? {
+        do {
+            try ensureDirectory()
+
+            let outcome = SynthesisOutcome(
+                reportMarkdown: Self.probeNote(context: context),
+                voiceScript: "",
+                providerLabel: "not called",
+                model: "not called",
+                temperature: 0,
+                promptCharacters: 0,
+                rulesHarvested: [],
+                isProbe: true
+            )
+
+            let fileURL = url(for: context)
+            let data = Data(Self.render(outcome: outcome, context: context).utf8)
+            try data.write(to: fileURL, options: .atomic)
+
+            _ = try await applyMemoryUpdates(rules: [], context: context)
+
+            logger.notice("Probe-session note archived at \(fileURL.path, privacy: .public)")
+            return ArchiveOutcome(reportPath: fileURL.path, rulesHarvested: [], reportBytes: data.count)
+        } catch {
+            logger.error("Could not archive the probe-session note: \(error.localizedDescription, privacy: .public)")
+            _ = try? await applyMemoryUpdates(rules: [], context: context)
+            return nil
+        }
+    }
+
+    /// The two-line note a probe session leaves behind.
+    static func probeNote(context: SessionCompletionContext) -> String {
+        let duration = durationDescription(seconds: Int(context.durationSeconds.rounded()))
+        let events = context.eventCount == 1 ? "1 event" : "\(context.eventCount) events"
+        return """
+        # Day Brief — \(BriefSanitizer.dayTitle(from: context.stoppedAt))
+
+        **Probe session — \(duration), \(events).** Nothing substantive was on screen, so no briefing was written. Raw captures were purged per Zero-Trace Mode.
+        """
+    }
+
     // MARK: - Memory updates
 
     /// Appends the harvested rules and folds the session into the counters.
@@ -162,8 +207,8 @@ final class ReportArchiver {
 
     // MARK: - Rendering
 
-    /// The on-disk report: a provenance header, the debrief, and the spoken
-    /// script preserved so the briefing can be regenerated or audited later.
+    /// The on-disk report: the brief first, then a short provenance block for
+    /// auditing.
     private static func render(
         outcome: SynthesisOutcome,
         context: SessionCompletionContext
@@ -184,22 +229,19 @@ final class ReportArchiver {
         if context.suppressedFrameCount > 0 {
             lines.append("- **Frames suppressed by the privacy shield:** \(context.suppressedFrameCount)")
         }
-        lines.append("- **Synthesised with:** \(outcome.providerLabel) · `\(outcome.model)` · temperature \(outcome.temperature)")
-        lines.append("- **Prompt size:** \(outcome.promptCharacters) characters")
-        lines.append("- **Generated:** \(generated)")
-
-        if !outcome.voiceScript.isEmpty {
-            lines.append("")
-            lines.append("### Voice script (spoken)")
-            lines.append("")
-            lines.append("> The first ten seconds of this were played back on generation. Kept verbatim so the briefing can be audited or regenerated.")
-            lines.append("")
-            lines.append(outcome.voiceScript)
+        if outcome.isProbe {
+            lines.append("- **Debrief:** not generated — the session was below the briefing threshold")
+        } else {
+            lines.append("- **Synthesised with:** \(outcome.providerLabel) · `\(outcome.model)`")
         }
+        if outcome.promptCharacters > 0 {
+            lines.append("- **Prompt size:** \(outcome.promptCharacters) characters")
+        }
+        lines.append("- **Generated:** \(generated)")
 
         if !outcome.rulesHarvested.isEmpty {
             lines.append("")
-            lines.append("### Rules of thumb added to the user profile")
+            lines.append("### Added to your working profile")
             lines.append("")
             for rule in outcome.rulesHarvested {
                 lines.append("- \(rule)")
