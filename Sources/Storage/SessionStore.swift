@@ -169,6 +169,34 @@ actor SessionStore {
         return summary
     }
 
+    /// Hard-purges all raw OCR events for a session from SQLite.
+    ///
+    /// Called after the Day Brief has been generated and archived. Deletes every
+    /// raw event row and vacuums the database so no screen text survives.
+    func purgeSession(sessionId: String) async {
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(self.handle, "DELETE FROM session_events WHERE session_id = ?;", -1, &statement, nil) == SQLITE_OK else {
+            logger.error("purge prepare failed: \(Self.lastError(self.handle), privacy: .public)")
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        Self.bindText(statement, 1, sessionId)
+
+        if sqlite3_step(statement) == SQLITE_DONE {
+            let deleted = sqlite3_changes(self.handle)
+            logger.notice("Purged \(deleted) raw events for session \(sessionId, privacy: .public)")
+        } else {
+            logger.error("purge step failed: \(Self.lastError(self.handle), privacy: .public)")
+        }
+
+        // VACUUM to reclaim space and ensure no deleted data lingers
+        if sqlite3_exec(self.handle, "VACUUM;", nil, nil, nil) != SQLITE_OK {
+            logger.error("VACUUM failed: \(Self.lastError(self.handle), privacy: .public)")
+        } else {
+            logger.notice("Database vacuumed — zero-trace purge complete")
+        }
+    }
+
     /// Every recorded session, newest first, summarised for the sidebar.
     ///
     /// `SUM(is_ephemeral)` is null for a session in which no event was

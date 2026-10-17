@@ -1,6 +1,6 @@
 ---
 name: daypilot-tracker
-description: On-device screen and workflow tracker for macOS indie developers. Captures activity between Start/Stop sessions, harvests discarded insights from ephemeral tools (Stickies, AI chats, X, scratchpads), purges non-productive noise, and generates an executive debrief with an audio script and zero-friction morning launchpad.
+description: On-device screen and workflow tracker for macOS indie developers. Captures activity between Start/Stop sessions, harvests discarded insights from ephemeral tools (Stickies, AI chats, X, scratchpads), purges non-productive noise, and generates a chief-of-staff end-of-day brief grounded strictly in captured evidence.
 metadata:
   version: "1.0.0"
   author: "Indie Studio Engine"
@@ -27,7 +27,7 @@ Your role is to process raw chronological workday telemetry (window titles, acti
 4. **The Reality Mirror:**
    - Differentiate **Core Velocity** (shipping features, squashing bugs, wiring monetization) from **Productive Procrastination** (endless icon tweaks, color token over-optimization, premature folder refactoring).
    - Do not use corporate HR language. Provide an honest, peer-to-peer assessment.
-5. **Zero Morning Cold-Start:** Always give the exact file path, terminal command, and first 45-minute task so the user starts with zero friction tomorrow morning.
+5. **Grounding Over Guessing:** Facts, numbers, and artifacts come only from captured evidence. A section with no supporting evidence is omitted, never padded — and a file path, command, or task is never invented.
 
 ---
 
@@ -93,54 +93,45 @@ Combine these fragments into a finalized asset.
 
 ### Pass 4: Next-Day Activation Setup
 
-Identify the most recent unmerged branch, failing unit test, or incomplete component. Formulate a single terminal launch command and target file for the next morning.
+Only when the evidence contains a specific unfinished artifact (an open file, a failing command, a draft): propose ONE first move tomorrow, naming the artifact exactly as it appeared. If nothing qualifies, omit the section entirely — never invent a file path, command, or task.
 
 ---
 
-## 4. Required Output Format
+## 4. Output Format — a chief-of-staff brief
 
-You must output the final debrief strictly adhering to this Markdown structure:
+The brief is written fresh every evening. Structure is selected by the evidence, never forced by a template: a section appears only when the data supports it, and a quiet day gets a short honest brief instead of four empty sections.
 
 ```markdown
-# ⚡ Indie Velocity Debrief — [Session Date]
+# Day Brief — [Weekday, D Month YYYY]
 
-### 1. 🚀 Shipped Velocity (The Needle Movers)
-*Focus: Completed features, resolved bugs, merged code, and store assets.*
-* **[App/Repo Name]:** [Specific feature completed or milestone reached].
-  * *Evidence:* [Git commits, files touched, or App Store assets prepared].
-  * *Impact:* [Why this directly advances project shipping or monetization].
+## The day in brief
+2–3 sentences: the shape of the day, the most important thing that happened, the most important thing left open.
 
----
+## Where the time went        (only when the session ran 20+ minutes)
+- Surface — 1h 05m           (top surfaces, 5+ minutes each)
 
-### 2. 🧲 Rescued Assets (The Harvester)
-*Focus: High-value ideas, hooks, or code scraps saved from Stickies, AI chats, and scratchpads.*
-* **Bundle: [Asset Title — e.g., BiteFix 3-Second Pattern-Interrupt Video Script]**
-  * *Source Fragments:* [Where it was found: Stickies, AI Studio tab, etc.]
-  * *Synthesized Output:*
-    ```[language]
-    [Complete, drop-in ready prompt, script, or code]
-    ```
+## What moved                 (only when something completed)
+- Concrete work, each bullet naming the artifact seen on screen.
 
----
+## Open threads               (only when present)
+- Unfinished work, blockers, or errors visible in the evidence.
 
-### 3. ⏱️ The Reality Mirror (Signal vs. Productive Procrastination)
-* **Core Deep Work Velocity:** [Duration spent directly writing code, building UI, or testing].
-* **Productive Procrastination Audit:** [Explicitly call out time spent on fake work, endless UI tweaks, or passive social browsing, with total time leaked].
-* **Friction & Strategic Lesson:** [Identify the technical or execution blocker encountered and state the 1-sentence engineering rule of thumb].
+## Recovered fragments        (only when ephemeral fragments exist)
+- One finished, drop-in deliverable per cluster, in a fenced code block.
 
----
+## Worth remembering          (only for a specific cause-and-effect lesson, 0–2 lines)
+- The reusable operational rule.
 
-### 4. 🎯 Tomorrow’s Zero-Friction Launchpad (First 45 Minutes)
-* **Target File:** `[Exact relative file path]`
-* **Terminal Command:** `[Exact shell command to execute first]`
-* **First Micro-Action:** [The precise line of code or task to execute before opening any web browser].
-
----
-
-[VOICE_SCRIPT]
-[A 45-60 second natural, peer-to-peer spoken debrief written for macOS AVSpeechSynthesizer. Highlight what shipped, state the top rescued asset, address where time leaked, and give the first launch action for tomorrow morning. Do not include markdown formatting or bullet points inside this tag.]
-[/VOICE_SCRIPT]
+## Tomorrow, first move       (only when the data names a specific unfinished artifact)
+- One move, naming the artifact exactly as it appeared. Never invent a file, command, URL, or tool — omit the section instead.
 ```
+
+Rules layered on top of the structure:
+
+- Every factual sentence traces to the payload's `evidence` object or raw sections; numbers come only from `evidence`.
+- No emoji, no placeholder lines ("Nothing shipped"), no lectures, no generic advice, and no "why it matters" commentary.
+- A trivial session (under 10 minutes, or nothing meaningful on screen) gets the title and one honest paragraph, nothing else.
+- Synthetic filler is stripped downstream: emoji, canned phrases, empty sections, and any quoted artifact that does not exist in the payload are removed before archiving.
 
 ## 5. Persistent Memory Updating (profile.json)
 

@@ -44,8 +44,13 @@ final class WindowManager {
         let appName = application.localizedName ?? bundleIdentifier
         let pid = application.processIdentifier
 
-        let windowTitle = Self.focusedWindowTitle(processIdentifier: pid) ?? ""
-        let addressBarText = Self.addressBarText(processIdentifier: pid)
+        // Touch the Accessibility API only when it is already trusted. Calling
+        // it while untrusted raises the system consent dialog, which blocks the
+        // session start; without trust the capture still works, it just has no
+        // window title.
+        let axAvailable = AXIsProcessTrusted()
+        let windowTitle = axAvailable ? (Self.focusedWindowTitle(processIdentifier: pid) ?? "") : ""
+        let addressBarText = axAvailable ? Self.addressBarText(processIdentifier: pid) : nil
 
         let suppressionReason = SensitiveAppShield.suppressionReason(
             bundleIdentifier: bundleIdentifier,
@@ -72,23 +77,26 @@ final class WindowManager {
     /// strict concurrency checking flags. The API's key is documented as the
     /// literal `"AXTrustedCheckOptionPrompt"`, so referencing the string avoids
     /// the global entirely.
-    private let axTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
+    private static let axTrustedCheckOptionPrompt = "AXTrustedCheckOptionPrompt"
 
-    /// Prompts for Accessibility permission if it has not been granted.
-    ///
-    /// - Returns: `true` when the process is trusted, `false` when it still
-    ///   needs to be granted in System Settings.
+    /// Silent trust check — never prompts. Session start uses this so pressing
+    /// Start can never raise a system dialog; window titles simply stay empty
+    /// until the user grants access in System Settings.
     @discardableResult
-    func requestAccessibilityPermissionIfNeeded() -> Bool {
-        let options = [axTrustedCheckOptionPrompt: true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-
+    func checkAccessibilityPermission() -> Bool {
+        let trusted = AXIsProcessTrusted()
         if !trusted {
-            logger.notice("Accessibility permission is not granted yet — prompting the user")
-        } else {
-            logger.info("Accessibility permission available")
+            logger.notice("Accessibility permission not granted — window titles unavailable")
         }
         return trusted
+    }
+
+    /// Deliberate, user-initiated prompt. Call only from a visible "Grant…"
+    /// action so the dialog always follows an explicit click.
+    @discardableResult
+    static func requestAccessibilityPermissionPrompt() -> Bool {
+        let options = [axTrustedCheckOptionPrompt: true] as CFDictionary
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     // MARK: - Accessibility plumbing

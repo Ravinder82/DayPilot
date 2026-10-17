@@ -13,8 +13,14 @@ import Foundation
 
 enum RuleOfThumbHarvester {
 
+    /// Sessions shorter than this never contribute profile rules: a bad rule
+    /// pollutes every future prompt, and a short session has nothing to teach.
+    static let minimumSessionSeconds: TimeInterval = 600
+    static let minimumSessionEvents = 10
+
     /// Markers the prompt asks the model to attach a lesson to.
     private static let lessonMarkers = [
+        "Worth remembering",
         "Friction & Strategic Lesson",
         "Strategic Lesson",
         "Rule of thumb",
@@ -40,7 +46,7 @@ enum RuleOfThumbHarvester {
         var results: [String] = []
         var seen = Set<String>()
 
-        for candidate in lessonCandidates(report) + imperativeCandidates(report) {
+        for candidate in worthRememberingCandidates(report) + lessonCandidates(report) + imperativeCandidates(report) {
             let cleaned = clean(candidate)
             guard isAcceptable(cleaned) else { continue }
             let key = cleaned.lowercased()
@@ -87,6 +93,26 @@ enum RuleOfThumbHarvester {
                 }
                 break
             }
+        }
+        return candidates
+    }
+
+    /// Bullets under a `## Worth remembering` heading — the current prompt's
+    /// home for a reusable operational rule.
+    private static func worthRememberingCandidates(_ report: String) -> [String] {
+        var candidates: [String] = []
+        var collecting = false
+
+        for rawLine in report.components(separatedBy: .newlines) {
+            let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmed.hasPrefix("#") {
+                collecting = trimmed.lowercased().contains("worth remembering")
+                continue
+            }
+            guard collecting else { continue }
+            let line = stripMarkdown(trimmed)
+            guard !line.isEmpty else { continue }
+            candidates.append(line)
         }
         return candidates
     }

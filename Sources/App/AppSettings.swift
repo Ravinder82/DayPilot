@@ -21,17 +21,13 @@ final class AppSettings: ObservableObject {
     /// sampling interval rather than a blank picker.
     private func registerDefaults() {
         defaults.register(defaults: [
-            Keys.autoPlayDebrief: true,
             Keys.captureIntervalSeconds: DayPilotConfiguration.captureIntervalSeconds,
-            Keys.selectedVoiceIdentifier: "",
             Keys.preferredProviderID: ""
         ])
     }
 
     private enum Keys {
-        static let autoPlayDebrief = "settings.autoPlayDebrief"
         static let captureIntervalSeconds = "settings.captureIntervalSeconds"
-        static let selectedVoiceIdentifier = "settings.selectedVoiceIdentifier"
         static let preferredProviderID = "settings.preferredProviderID"
         static let selectedModelByProvider = "settings.selectedModelByProvider"
         // Pomodoro
@@ -39,8 +35,6 @@ final class AppSettings: ObservableObject {
         static let pomodoroShortBreakDuration = "settings.pomodoroShortBreakDuration"
         static let pomodoroLongBreakDuration = "settings.pomodoroLongBreakDuration"
         static let pomodoroCyclesBeforeLongBreak = "settings.pomodoroCyclesBeforeLongBreak"
-        static let pomodoroAutoStartBreaks = "settings.pomodoroAutoStartBreaks"
-        static let pomodoroAutoStartWork = "settings.pomodoroAutoStartWork"
         static let pomodoroSoundEnabled = "settings.pomodoroSoundEnabled"
     }
 
@@ -85,27 +79,6 @@ final class AppSettings: ObservableObject {
         objectWillChange.send()
     }
 
-    // MARK: - Voice
-
-    /// Speak the debrief when a session stops. On by default, because the
-    /// spoken briefing is the product.
-    var autoPlayDebrief: Bool {
-        get { defaults.bool(forKey: Keys.autoPlayDebrief) }
-        set {
-            defaults.set(newValue, forKey: Keys.autoPlayDebrief)
-            objectWillChange.send()
-        }
-    }
-
-    /// The voice the user picked, or `""` for the automatic choice.
-    var selectedVoiceIdentifier: String {
-        get { defaults.string(forKey: Keys.selectedVoiceIdentifier) ?? "" }
-        set {
-            defaults.set(newValue, forKey: Keys.selectedVoiceIdentifier)
-            objectWillChange.send()
-        }
-    }
-
     // MARK: - Perception
 
     /// Seconds between frame samples, bounded so a bad value cannot either flood
@@ -124,17 +97,13 @@ final class AppSettings: ObservableObject {
 
     /// Restores every preference to its default. Keychain keys are not touched.
     func resetToDefaults() {
-        defaults.removeObject(forKey: Keys.autoPlayDebrief)
         defaults.removeObject(forKey: Keys.captureIntervalSeconds)
-        defaults.removeObject(forKey: Keys.selectedVoiceIdentifier)
         defaults.removeObject(forKey: Keys.preferredProviderID)
         defaults.removeObject(forKey: Keys.selectedModelByProvider)
         defaults.removeObject(forKey: Keys.pomodoroWorkDuration)
         defaults.removeObject(forKey: Keys.pomodoroShortBreakDuration)
         defaults.removeObject(forKey: Keys.pomodoroLongBreakDuration)
         defaults.removeObject(forKey: Keys.pomodoroCyclesBeforeLongBreak)
-        defaults.removeObject(forKey: Keys.pomodoroAutoStartBreaks)
-        defaults.removeObject(forKey: Keys.pomodoroAutoStartWork)
         defaults.removeObject(forKey: Keys.pomodoroSoundEnabled)
         registerDefaults()
         objectWillChange.send()
@@ -188,24 +157,6 @@ final class AppSettings: ObservableObject {
         set {
             let clamped = Swift.max(2, Swift.min(10, newValue))
             defaults.set(clamped, forKey: Keys.pomodoroCyclesBeforeLongBreak)
-            objectWillChange.send()
-        }
-    }
-
-    /// Automatically start breaks when work phase ends.
-    var pomodoroAutoStartBreaks: Bool {
-        get { defaults.bool(forKey: Keys.pomodoroAutoStartBreaks) }
-        set {
-            defaults.set(newValue, forKey: Keys.pomodoroAutoStartBreaks)
-            objectWillChange.send()
-        }
-    }
-
-    /// Automatically start next work phase when break ends.
-    var pomodoroAutoStartWork: Bool {
-        get { defaults.bool(forKey: Keys.pomodoroAutoStartWork) }
-        set {
-            defaults.set(newValue, forKey: Keys.pomodoroAutoStartWork)
             objectWillChange.send()
         }
     }

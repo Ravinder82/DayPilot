@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             if model.sessionState == .capturing {
                 Self.logger.notice("Quitting mid-session: closing the session first")
-                _ = await model.stopWorkday(autoPlay: false)
+                _ = await model.stopWorkday()
             }
 
             // Bounded, so a debrief that never finishes cannot hold the app open.

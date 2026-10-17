@@ -94,6 +94,7 @@ extension LaunchHarness {
     }
 
     /// Recursively finds a button with the given title.
+    @MainActor
     private static func findButton(in view: NSView, withTitle title: String) -> NSButton? {
         if let button = view as? NSButton, button.title == title {
             return button
@@ -107,6 +108,7 @@ extension LaunchHarness {
     }
 
     /// Clicks the tab button with the given name in the tab bar.
+    @MainActor
     private static func clickTabButton(in view: NSView, tabName: String) {
         for subview in view.subviews {
             if let button = subview as? NSButton, button.title.contains(tabName) {

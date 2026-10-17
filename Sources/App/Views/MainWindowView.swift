@@ -27,33 +27,7 @@ struct MainWindowView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Custom tab bar
-            HStack {
-                ForEach(MainTab.allCases) { tab in
-                    Button {
-                        selectedTab = tab
-                    } label: {
-                        Label(tab.rawValue, systemImage: tab.icon)
-                            .font(.system(.body, weight: selectedTab == tab ? .semibold : .regular))
-                            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
-                    .background(
-                        selectedTab == tab ?
-                        Color.accentColor.opacity(0.1) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 6)
-                    )
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(.regularMaterial)
-            .overlay(alignment: .bottom) {
-                Divider()
-            }
+            topBar
 
             // Content
             Group {
@@ -90,6 +64,49 @@ struct MainWindowView: View {
                 model.refreshElapsed()
             }
         }
+        .sheet(isPresented: $model.needsScreenRecordingPermission) {
+            ScreenRecordingPermissionSheet(model: model)
+        }
+    }
+
+    // MARK: - Top bar
+
+    /// One row: tabs on the left, the focus console on the right. The console
+    /// holds session controls and the Pomodoro instrument side by side.
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            ForEach(MainTab.allCases) { tab in
+                tabButton(for: tab)
+            }
+
+            Spacer(minLength: 12)
+
+            FocusConsoleView(model: model, showsPomodoro: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(.regularMaterial)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
+    private func tabButton(for tab: MainTab) -> some View {
+        Button {
+            selectedTab = tab
+        } label: {
+            Label(tab.rawValue, systemImage: tab.icon)
+                .font(.system(.body, weight: selectedTab == tab ? .semibold : .regular))
+                .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+        .background(
+            selectedTab == tab ?
+            Color.accentColor.opacity(0.1) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6)
+        )
     }
 
     // MARK: - Toolbar
@@ -98,39 +115,38 @@ struct MainWindowView: View {
     /// it leads. Reading and exporting the debrief follow it.
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                Task { await model.toggleWorkday() }
-            } label: {
-                if model.sessionState == .idle {
-                    Label("Start Workday", systemImage: "play.circle")
-                } else {
-                    Label("Stop Day & Debrief", systemImage: "stop.circle")
-                }
+        ToolbarItem(placement: .status) {
+            HStack(spacing: 4) {
+                Image(systemName: "lock.shield.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                Text("Zero-Trace")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.green)
             }
-            .disabled(!model.canToggleWorkday)
-            .help(model.sessionState == .idle
-                ? "Start capturing this workday"
-                : "Stop capturing and write the debrief")
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.green.opacity(0.1), in: Capsule())
+            .help("Zero-Trace Mode Active: All screenshots & raw logs wiped after Day Brief generation.")
         }
 
         ToolbarItem(placement: .status) {
             if model.sessionState != .idle {
                 HStack(spacing: 6) {
                     Image(systemName: "record.circle.fill")
-                        .foregroundStyle(.green)
+                        .foregroundStyle(model.isSessionPaused ? .orange : .green)
                         .symbolEffect(.pulse, isActive: model.sessionState == .capturing)
-                    Text(model.elapsedClockText)
-                        .font(.body.monospacedDigit())
+                    Text("\(model.isSessionPaused ? "Paused" : "Recording") · \(model.eventCount) events")
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Session running for \(model.elapsedClockText)")
+                .accessibilityLabel("\(model.isSessionPaused ? "Session paused" : "Recording"), \(model.eventCount) events captured")
             }
         }
 
         ToolbarItem(placement: .status) {
-            PomodoroToolbarView(model: model)
+            LayaTokensSavedView(model: model)
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -145,16 +161,6 @@ struct MainWindowView: View {
             }
             .disabled(model.reportBody.isEmpty)
             .help(model.isEditingSource ? "Show the rendered debrief" : "Edit the Markdown source")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                model.speakDebrief()
-            } label: {
-                Label("Listen", systemImage: "speaker.wave.2")
-            }
-            .disabled(!model.canSpeakCurrentDebrief)
-            .help("Speak this debrief aloud")
         }
 
         ToolbarItem(placement: .primaryAction) {
@@ -193,77 +199,25 @@ struct MainWindowView: View {
     }
 }
 
-/// Pomodoro timer display in the toolbar status area.
-private struct PomodoroToolbarView: View {
+/// Laya decision engine tokens-saved counter.
+private struct LayaTokensSavedView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        if model.pomodoroPhase != .idle {
-            HStack(spacing: 8) {
-                // Phase indicator with color
-                Circle()
-                    .fill(phaseColor)
-                    .frame(width: 8, height: 8)
-                    .symbolEffect(.pulse, isActive: model.pomodoroPhase == .work)
-
-                // Phase name
-                Text(model.pomodoroPhaseText)
+        if model.tokensSavedByLaya > 0 {
+            HStack(spacing: 4) {
+                Image(systemName: "cpu")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                // Progress ring
-                ZStack {
-                    Circle()
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
-                        .frame(width: 16, height: 16)
-                    Circle()
-                        .trim(from: 0, to: model.pomodoroProgress)
-                        .stroke(phaseColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                        .frame(width: 16, height: 16)
-                        .rotationEffect(.degrees(-90))
-                        .animation(.linear(duration: 1), value: model.pomodoroProgress)
-                }
-
-                // Remaining time
-                Text(model.pomodoroRemainingText)
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 45, alignment: .trailing)
-
-                // Cycle count
-                if model.pomodoroCycleCount > 0 {
-                    Text("✓ \(model.pomodoroCycleCount)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    .foregroundStyle(.purple)
+                Text("\(model.tokensSavedByLaya) tokens saved")
+                    .font(.caption2.monospacedDigit().weight(.semibold))
+                    .foregroundStyle(.purple)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(.regularMaterial, in: Capsule())
-            .onTapGesture {
-                if model.pomodoroPhase == .work {
-                    model.pausePomodoro()
-                } else {
-                    model.resumePomodoro()
-                }
-            }
-            .help("Click to pause/resume Pomodoro")
-        } else {
-            Button {
-                model.startPomodoro()
-            } label: {
-                Label("Start Pomodoro", systemImage: "timer")
-            }
-            .help("Start a Pomodoro session")
-        }
-    }
-
-    private var phaseColor: Color {
-        switch model.pomodoroPhase {
-        case .idle: return .secondary
-        case .work: return .red
-        case .shortBreak: return .green
-        case .longBreak: return .blue
+            .background(.purple.opacity(0.1), in: Capsule())
+            .help("Tokens Saved by Laya Decision 1 Engine — fast local decisions that prevent unnecessary cloud LLM calls")
         }
     }
 }
+

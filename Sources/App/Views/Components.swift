@@ -85,35 +85,7 @@ struct CodeBlockCard: View {
     }
 }
 
-/// A three-bar level animation, so the bar is visibly alive while speaking.
-struct SpeakingIndicator: View {
-    @State private var isAnimating = false
-
-    var body: some View {
-        HStack(spacing: 3) {
-            ForEach(0..<3, id: \.self) { index in
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.accentColor)
-                    .frame(width: 3, height: barHeight(for: index))
-                    .animation(
-                        .easeInOut(duration: 0.45)
-                            .repeatForever(autoreverses: true)
-                            .delay(Double(index) * 0.12),
-                        value: isAnimating
-                    )
-            }
-        }
-        .onAppear { isAnimating = true }
-        .accessibilityLabel("Speaking")
-    }
-
-    private func barHeight(for index: Int) -> CGFloat {
-        let heights: [CGFloat] = [8, 14, 10]
-        return isAnimating ? heights[index] : 6
-    }
-}
-
-/// A grid for the rare Markdown table.
+/// A simple grid for Markdown tables.
 struct TableGrid: View {
     let headers: [String]
     let rows: [[String]]

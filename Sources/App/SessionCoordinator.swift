@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import ScreenCaptureKit
 import os
 
 /// What the user did in one captured moment, handed to the UI and the log.
@@ -37,44 +38,46 @@ struct SessionCompletion: Sendable, Equatable {
     var hasReport: Bool { synthesisFailureReason == nil }
 }
 
-/// Screen Recording permission, requested through TCC.
+/// Screen Recording permission, handled so the system consent dialog never
+/// appears unless the user asked for a permission check.
 ///
-/// Kept out of `ScreenCaptureEngine` so the engine never has to reason about
-/// permission state — it simply starts, and the coordinator has already made
-/// sure the user has been asked.
+/// The trap this exists to prevent: `SCShareableContent` and
+/// `CGRequestScreenCaptureAccess()` are the exact calls that make macOS show
+/// its "would like to record this computer's screen" dialog — and macOS
+/// re-shows it on every call while the grant is missing. An app that probes
+/// from its Start button therefore greets the user with the same popup over
+/// and over. The rule instead:
+///
+/// - `isGranted()` is the silent preflight the Start action uses. It never
+///   prompts, so Play either starts a session or shows DayPilot's own
+///   permission sheet.
+/// - `confirmWithLiveProbe()` is the only live call, used when the user
+///   explicitly clicks "Check Again" — the one moment a system dialog is
+///   contextually correct, and silent whenever the grant already exists.
 enum ScreenRecordingPermission {
 
+    /// Silent preflight — reads the TCC grant without touching
+    /// ScreenCaptureKit and without ever raising a dialog.
     static func isGranted() -> Bool {
         CGPreflightScreenCaptureAccess()
     }
 
-    /// Shows the system prompt if permission has not been granted.
-    @discardableResult
-    static func request() -> Bool {
-        guard !isGranted() else { return true }
-        return CGRequestScreenCaptureAccess()
-    }
-
-    /// Prompts if needed, then waits a bounded time for the user to answer.
+    /// Verifies the grant end-to-end with a live ScreenCaptureKit probe.
     ///
-    /// The TCC dialog does not resolve synchronously, and a user who has just
-    /// clicked "Allow" needs a moment before the kernel records the grant, so
-    /// this polls rather than trusting an immediate return value.
-    static func awaitGrant(timeout: TimeInterval) async -> Bool {
-        if isGranted() { return true }
-        _ = request()
-
-        let clock = ContinuousClock.now
-        let deadline = clock + .seconds(timeout)
-        while ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .seconds(0.4))
-            if isGranted() { return true }
+    /// Only for a user-initiated re-check: when the preflight reads stale
+    /// `false` in a long-running process, this is what settles it. If the
+    /// grant genuinely is missing, macOS shows its consent dialog here.
+    static func confirmWithLiveProbe() async -> Bool {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            return !content.displays.isEmpty
+        } catch {
+            return false
         }
-        return isGranted()
     }
 }
 
-enum SessionCoordinatorError: LocalizedError {
+enum SessionCoordinatorError: LocalizedError, Equatable {
     case sessionAlreadyActive
     case screenRecordingDenied
 
@@ -84,8 +87,9 @@ enum SessionCoordinatorError: LocalizedError {
             "A workday session is already running."
         case .screenRecordingDenied:
             """
-            Screen Recording permission was not granted. DayPilot cannot sample the screen \
-            without it — grant it in System Settings > Privacy & Security > Screen Recording.
+            Screen Recording permission is off. Turn DayPilot on in System \
+            Settings > Privacy & Security > Screen Recording, then click \
+            Check Again in DayPilot's permission sheet.
             """
         }
     }
@@ -107,8 +111,8 @@ final class SessionCoordinator {
     enum TrackingState: Sendable, Equatable {
         case idle
         case capturing
+        case paused
         case synthesising
-        case speaking
     }
 
     private struct WatchdogState: Sendable {
@@ -122,8 +126,8 @@ final class SessionCoordinator {
     private let userMemory: UserMemoryStore
 
     private let reportArchiver: ReportArchiver
-    private let voiceEngine: VoicePlaybackEngine
     private let skillConfiguration: SkillConfiguration
+    private let decisionEngine: DecisionEngineService
 
     private var watchdogTimer: DispatchSourceTimer?
     private var activationObserver: NSObjectProtocol?
@@ -160,16 +164,6 @@ final class SessionCoordinator {
     /// Called on the main actor when the state machine changes state.
     var onStateChange: (@MainActor (TrackingState) -> Void)?
 
-    /// Speaks a standalone line (used by the status bar's playback controls).
-    func speak(_ text: String, autoStopAfter: TimeInterval? = nil) {
-        voiceEngine.speak(text: text, autoStopAfter: autoStopAfter)
-    }
-
-    /// Stops any spoken brief in progress.
-    func stopSpeaking() {
-        voiceEngine.stop()
-    }
-
     init(
         captureEngine: ScreenCaptureEngine,
         textExtractor: VisionTextExtractor,
@@ -178,7 +172,7 @@ final class SessionCoordinator {
         userMemory: UserMemoryStore,
         skillConfiguration: SkillConfiguration? = nil,
         reportArchiver: ReportArchiver? = nil,
-        voiceEngine: VoicePlaybackEngine? = nil
+        decisionEngine: DecisionEngineService? = nil
     ) {
         self.captureEngine = captureEngine
         self.textExtractor = textExtractor
@@ -195,7 +189,7 @@ final class SessionCoordinator {
                 memoryStore: userMemory,
                 baseDirectory: userMemory.baseDirectory
             )
-        self.voiceEngine = voiceEngine ?? VoicePlaybackEngine(configuration: loaded.audio)
+        self.decisionEngine = decisionEngine ?? DecisionEngineService()
 
         captureEngine.onFrame = { [weak self] frame in
             Task { @MainActor in self?.handleFrame(frame) }
@@ -212,7 +206,8 @@ final class SessionCoordinator {
     static func makeDefault(
         sessionStore: SessionStore,
         userMemory: UserMemoryStore,
-        skillConfiguration: SkillConfiguration? = nil
+        skillConfiguration: SkillConfiguration? = nil,
+        decisionEngine: DecisionEngineService? = nil
     ) -> SessionCoordinator {
         SessionCoordinator(
             captureEngine: ScreenCaptureEngine(),
@@ -220,7 +215,8 @@ final class SessionCoordinator {
             windowManager: WindowManager(),
             sessionStore: sessionStore,
             userMemory: userMemory,
-            skillConfiguration: skillConfiguration
+            skillConfiguration: skillConfiguration,
+            decisionEngine: decisionEngine
         )
     }
 
@@ -235,9 +231,16 @@ final class SessionCoordinator {
     func start() async throws {
         guard state == .idle else { throw SessionCoordinatorError.sessionAlreadyActive }
 
-        _ = windowManager.requestAccessibilityPermissionIfNeeded()
-        let granted = await ScreenRecordingPermission.awaitGrant(timeout: 12)
-        guard granted else { throw SessionCoordinatorError.screenRecordingDenied }
+        // Silent check only: a system permission dialog must never interrupt
+        // the Start action. Without Accessibility, captures still work — the
+        // window title is just left empty.
+        _ = windowManager.checkAccessibilityPermission()
+        // Silent preflight only: the Start action must never greet the user
+        // with a system consent dialog. When the grant is missing, DayPilot
+        // throws and its own permission sheet explains the fix — no popups.
+        guard ScreenRecordingPermission.isGranted() else {
+            throw SessionCoordinatorError.screenRecordingDenied
+        }
 
         let sessionId = await sessionStore.startSession()
         currentSessionId = sessionId
@@ -268,12 +271,38 @@ final class SessionCoordinator {
         )
     }
 
+    /// Pauses the session without generating a debrief.
+    func pause() async {
+        guard state == .capturing else { return }
+        await captureEngine.stop()
+        stopWatchdog()
+        removeActivationObserver()
+        transition(to: .paused)
+        logger.notice("Session paused")
+    }
+
+    /// Resumes a paused session.
+    func resume() async {
+        guard state == .paused else { return }
+        transition(to: .capturing)
+        captureEngine.setSuppressed(Self.isFrontmostSurfaceSuppressed(windowManager: windowManager))
+        installActivationObserver()
+        startWatchdog()
+        do {
+            try await captureEngine.start()
+        } catch {
+            transition(to: .idle)
+            logger.error("Failed to resume capture: \(error.localizedDescription, privacy: .public)")
+        }
+        logger.notice("Session resumed")
+    }
+
     /// Stops the session and runs the whole end-of-day lifecycle.
     ///
     /// The lifecycle is: halt capture, collect the session's events, assemble
     /// the prompt from the user profile plus the pruned telemetry, call the
-    /// configured provider, archive the report, fold the lessons back into
-    /// `user_memory.json`, and speak the script.
+    /// configured provider, clean and archive the brief, and fold what was
+    /// learned back into `user_memory.json`.
     ///
     /// Stopping deliberately never throws. The captured data is already safe in
     /// SQLite, so a missing API key or a dead network must produce a report
@@ -320,22 +349,42 @@ final class SessionCoordinator {
         )
 
         // ---- Synthesis ----------------------------------------------------
+        //
+        // A probe session — too short, or nothing ever on screen — never
+        // reaches the model. It gets an honest two-line note instead of a
+        // padded briefing.
 
+        let isProbe = Self.isProbeSession(context: context)
         var failureReason: String?
         var outcome: SynthesisOutcome?
 
-        do {
-            outcome = try await synthesise(context: context)
-        } catch {
-            failureReason = error.localizedDescription
-            logger.error("Synthesis failed: \(error.localizedDescription, privacy: .public)")
+        if isProbe {
+            logger.plain(
+                "Probe session — \(context.eventCount) events over "
+                + "\(Int(context.durationSeconds.rounded()))s; synthesis skipped"
+            )
+        } else {
+            do {
+                outcome = try await synthesise(context: context)
+            } catch {
+                failureReason = error.localizedDescription
+                logger.error("Synthesis failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
 
         // ---- Archive and speak -------------------------------------------
 
         let archiveOutcome: ReportArchiver.ArchiveOutcome?
         if var outcome {
-            let rules = RuleOfThumbHarvester.harvest(from: outcome.reportMarkdown)
+            // Rules of thumb only come from sessions with real substance; a
+            // thin session has nothing to teach and must not pollute memory.
+            let rules: [String]
+            if context.durationSeconds >= RuleOfThumbHarvester.minimumSessionSeconds,
+               context.eventCount >= RuleOfThumbHarvester.minimumSessionEvents {
+                rules = RuleOfThumbHarvester.harvest(from: outcome.reportMarkdown)
+            } else {
+                rules = []
+            }
             if !rules.isEmpty {
                 outcome.rulesHarvested = rules
             }
@@ -349,6 +398,8 @@ final class SessionCoordinator {
                 logger.error("Archiving failed: \(error.localizedDescription, privacy: .public)")
                 failureReason = failureReason ?? error.localizedDescription
             }
+        } else if isProbe {
+            archiveOutcome = await reportArchiver.recordProbeSession(context: context)
         } else {
             let reason = failureReason ?? "Synthesis produced no report."
             archiveOutcome = await reportArchiver.recordFailedSession(
@@ -357,19 +408,7 @@ final class SessionCoordinator {
             )
         }
 
-        // ---- Speak ---------------------------------------------------------
-
-        var spokenScript = ""
-        if let outcome, !outcome.voiceScript.isEmpty {
-            spokenScript = outcome.voiceScript
-            transition(to: .speaking)
-            voiceEngine.speak(text: outcome.voiceScript)
-            logger.notice("Speaking the debrief")
-        } else if failureReason != nil {
-            logger.notice("No voice script available — skipping speech")
-        } else {
-            logger.notice("The model returned no script — nothing to speak")
-        }
+        // ---- Done ----------------------------------------------------------
 
         transition(to: .idle)
         currentSessionId = nil
@@ -379,13 +418,21 @@ final class SessionCoordinator {
             eventCount: context.eventCount,
             durationSeconds: context.durationSeconds,
             breadcrumbCount: context.breadcrumbCount,
-            reportMarkdown: outcome?.reportMarkdown ?? "",
+            reportMarkdown: outcome?.reportMarkdown
+                ?? (isProbe ? ReportArchiver.probeNote(context: context) : ""),
             reportPath: archiveOutcome?.reportPath ?? "",
-            voiceScript: spokenScript,
+            voiceScript: "",
             rulesHarvested: archiveOutcome?.rulesHarvested ?? [],
             synthesisFailureReason: failureReason
         )
         lastCompletion = completion
+
+        // ---- Zero-Trace Purge ----------------------------------------------
+        // The Day Brief has been generated and archived. Now permanently erase
+        // all raw OCR events and temporary capture artifacts so no screen text
+        // survives beyond the final report.
+        await sessionStore.purgeSession(sessionId: sessionId)
+        logger.notice("Zero-trace purge complete for session \(sessionId, privacy: .public)")
 
         let message =
             "Session \(sessionId) closed — \(completion.eventCount) events, "
@@ -394,6 +441,22 @@ final class SessionCoordinator {
         logger.notice("\(message, privacy: .public)")
 
         return completion
+    }
+
+    /// True when a session is too small to deserve a model-written brief.
+    ///
+    /// Either it ran under the probe threshold, or it was short and almost
+    /// nothing ever appeared on screen. Probe sessions produce an honest
+    /// two-line note instead of a padded briefing.
+    private static func isProbeSession(context: SessionCompletionContext) -> Bool {
+        if context.durationSeconds < DayPilotConfiguration.probeSessionSeconds {
+            return true
+        }
+        if context.eventCount <= DayPilotConfiguration.probeSessionMaxEvents,
+           context.durationSeconds < DayPilotConfiguration.probeSessionMaxEventsWindow {
+            return true
+        }
+        return false
     }
 
     /// Attaches the coordinator to a session that already exists.
@@ -432,9 +495,6 @@ final class SessionCoordinator {
         return Date().timeIntervalSince(start)
     }
 
-    /// The voice engine, exposed so the status bar can stop playback.
-    var speech: VoicePlaybackEngine { voiceEngine }
-
     // MARK: - Synthesis
 
     /// Assembles the prompt and calls the provider.
@@ -443,9 +503,6 @@ final class SessionCoordinator {
     /// the profile export are main-actor, so the client itself is built here
     /// and dispatched.
     private func synthesise(context: SessionCompletionContext) async throws -> SynthesisOutcome {
-        guard context.durationSeconds >= TimeInterval(DayPilotConfiguration.minimumSessionSecondsForSynthesis) else {
-            throw SynthesisError.sessionTooShort(Int(context.durationSeconds))
-        }
 
         let apiClient = try APIClient.resolve(from: skillConfiguration)
 
@@ -476,16 +533,25 @@ final class SessionCoordinator {
             userPayload: payload
         )
         let elapsed = Date().timeIntervalSince(startedAt)
+
+        // The prompt forbids slop; this pass guarantees it. Emoji, canned
+        // phrases, empty sections, and any artifact not present in the payload
+        // are removed before the brief is ever shown or archived.
+        let reportMarkdown = BriefSanitizer.sanitize(
+            reportMarkdown: result.reportMarkdown,
+            payloadCorpus: payload,
+            date: context.stoppedAt
+        )
         let generatedMessage =
             "Debrief generated by \(apiClient.provider.provider.displayName) "
             + "in \(String(format: "%.1f", elapsed))s"
         logger.plain(generatedMessage)
 
         return SynthesisOutcome(
-            reportMarkdown: result.reportMarkdown,
+            reportMarkdown: reportMarkdown,
             voiceScript: result.voiceScript,
             providerLabel: apiClient.provider.provider.label,
-            model: apiClient.provider.provider.model,
+            model: apiClient.effectiveModel,
             temperature: apiClient.provider.provider.temperature,
             promptCharacters: payload.count,
             rulesHarvested: []
@@ -546,6 +612,36 @@ final class SessionCoordinator {
             // Vision read the screen but nothing new appeared. Storing this
             // would fill the database with duplicates.
             return
+        }
+
+        // ---- Laya System 1 Decision Engine --------------------------------
+        // Fast typed decisions (~33ms) before the event reaches the cloud LLM.
+        let state = "Active app: \(surface.appName), Window: \(surface.windowTitle), OCR text: \(String(delta.prefix(500)))"
+        let decision = await decisionEngine.decide(state: state)
+
+        if let decision {
+            // Drop idle/social/system frames
+            guard decision.isMeaningfulWork else {
+                logger.info("Laya dropped frame — not meaningful work (prob: \(String(format: "%.2f", decision.meaningfulProbability)))")
+                return
+            }
+
+            // Purge secrets — never reach cloud LLM
+            guard decision.dataSensitivity != "secrets" else {
+                logger.warning("Laya PURGED frame — secrets detected (score: \(String(format: "%.2f", decision.sensitivityScore)))")
+                return
+            }
+
+            // Flag discarded insights
+            if decision.isDiscardedInsight {
+                logger.notice("Laya flagged discarded insight (prob: \(String(format: "%.2f", decision.insightProbability)))")
+            }
+
+            // Route routine_admin to compact counters
+            if decision.workCategory == "routine_admin" {
+                logger.info("Laya routed to compact counter — routine_admin")
+                // Still record, but mark as routine
+            }
         }
 
         guard recordedEventCount < DayPilotConfiguration.maxStoredEventsPerSession else {

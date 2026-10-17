@@ -27,7 +27,7 @@ enum LaunchHarness {
     /// True when a CLI diagnostic mode was requested. Those runs drive a sandboxed
     /// model of their own, so the window must not boot the real one beside them.
     static var isCommandLineToolRun: Bool {
-        let flags = ["--selftest", "--integration-test", "--test-connection", "--list-models"]
+        let flags = ["--selftest", "--integration-test", "--test-connection", "--list-models", "--stress-test", "--brief-preview"]
         return CommandLine.arguments.contains { flags.contains($0) }
     }
 
@@ -41,20 +41,40 @@ enum LaunchHarness {
         let arguments = CommandLine.arguments
 
         if arguments.contains("--selftest") {
-            let checks = SystemHealth.evaluate()
-            SystemHealth.log(checks)
-            print(SystemHealth.formatReport(checks, version: AppInfo.version))
-            // A blocked capability means the binary is unusable on this machine,
-            // so the exit code is the signal CI and `make selftest` act on.
-            exit(SystemHealth.hasBlockingFailure(checks) ? 1 : 0)
+            Task { @MainActor in
+                let checks = await SystemHealth.evaluate()
+                SystemHealth.log(checks)
+                print(SystemHealth.formatReport(checks, version: AppInfo.version))
+                // A blocked capability means the binary is unusable on this machine,
+                // so the exit code is the signal CI and `make selftest` act on.
+                exit(SystemHealth.hasBlockingFailure(checks) ? 1 : 0)
+            }
+            return
         }
 
         if arguments.contains("--integration-test") {
             Task { @MainActor in
                 await Self.runIntegrationTest()
-                // Let speech play out before the process is left running with
-                // the menu bar as its only visible surface.
                 try? await Task.sleep(for: .seconds(12))
+            }
+            return
+        }
+
+        // `--stress-test`: runs the Laya + synthesis stress simulation.
+        if arguments.contains("--stress-test") {
+            Task { @MainActor in
+                await Self.runStressTest()
+            }
+            return
+        }
+
+        // `--brief-preview`: offline inspection of the briefing pipeline —
+        // synthetic events in, evidence pack and sanitized brief out. No
+        // network, no Keychain, no capture.
+        if arguments.contains("--brief-preview") {
+            Task { @MainActor in
+                await Self.runBriefPreview()
+                exit(0)
             }
             return
         }
@@ -312,7 +332,7 @@ enum LaunchHarness {
             (
                 "Google Chrome", "com.google.Chrome", "Gemini — AI Studio", true,
                 """
-                model: gemini-2.0-flash
+                model: gemini-2.5-flash
                 temperature: 0.3
                 refine this system prompt for terser output
                 """
@@ -419,26 +439,20 @@ enum LaunchHarness {
             print("    ✓ rules of thumb      \(persisted.cumulativeRulesOfThumb.count) total")
         }
 
-        // ---- 7. Audio routing ---------------------------------------------------
+        // ---- 7. Report summary --------------------------------------------------
 
-        banner("[7/7] Spoken debrief (first 10 seconds)")
+        banner("[7/7] Report summary")
 
         if completion.voiceScript.isEmpty {
-            print("  No voice script was produced, so there is nothing to play.")
+            print("  No voice script was produced.")
         } else {
-            sandboxModel.speakDebriefPreview(completion.voiceScript, autoStopAfter: 10)
-            print("  Playing \(completion.voiceScript.count) characters for 10 seconds…")
+            print("  Voice script: \(completion.voiceScript.count) characters")
             let preview = completion.voiceScript
                 .split(separator: ".", omittingEmptySubsequences: true)
                 .prefix(2)
                 .joined(separator: ". ") + "."
-            print("  \(preview)")
+            print("  Preview: \(preview)")
         }
-
-        // Hold the process open so the spoken clip actually plays before the app
-        // settles into its menu-bar run loop.
-        try? await Task.sleep(nanoseconds: 11_000_000_000)
-        sandboxModel.stopPlayback()
 
         // The sandbox is left in place on purpose: it holds the SQLite database,
         // the memory profile and the archived report produced by this run, so the
@@ -446,6 +460,406 @@ enum LaunchHarness {
         // which the system clears on its own schedule.
         print("\n  Integration test complete. Sandbox kept for inspection:")
         print("  \(sandbox.path)")
+    }
+
+
+    // MARK: - Brief Preview
+
+    /// Offline inspection of the briefing pipeline: synthetic events in,
+    /// evidence pack and sanitized brief out.
+    ///
+    /// Deliberately touches nothing: no network call, no Keychain read, no
+    /// screen capture. It exists so the compression step (what the model sees)
+    /// and the hygiene step (what the model may not ship) can be inspected
+    /// without burning a provider call or a permission.
+    @MainActor
+    public static func runBriefPreview() async {
+        let rule = String(repeating: "─", count: 84)
+        func banner(_ title: String) { print("\n\(rule)\n  \(title)\n\(rule)") }
+
+        banner("BRIEF PREVIEW — synthetic day, no network, no Keychain")
+
+        // A ninety-minute working morning: deep work, a build, a browser
+        // lookup, two ephemeral fragments, and a GitHub check.
+        let seeds: [(minute: Double, app: String, bundle: String, window: String, ephemeral: Bool, delta: String)] = [
+            (0, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — BriefSanitizer.swift", false,
+             "let cleaned = BriefSanitizer.sanitize(reportMarkdown: reportMarkdown, payloadCorpus: payload, date: date)"),
+            (7, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — BriefSanitizer.swift", false,
+             "private static func dropEmptySections(_ sections: [Section], removed: inout [String]) -> [Section]"),
+            (14, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — BriefSanitizer.swift", false,
+             "guard contentWords >= 3 else { removed.append(\"empty section\") ; return false }"),
+            (19, "Terminal", "com.apple.Terminal", "daypilot — swift build", false,
+             "swift build 2>&1 | grep -E \"error|warning\"\nBuild complete! 0 errors, 0 warnings"),
+            (24, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — PromptBuilder.swift", false,
+             "static func systemPrompt(memoryContext: String) -> String { section repertoire, evidence-only }"),
+            (31, "Google Chrome", "com.google.Chrome", "ChatGPT — prompt review", true,
+             "The brief should read like a memo, not a dashboard. Remove the emoji section headings."),
+            (35, "Google Chrome", "com.google.Chrome", "ChatGPT — prompt review", true,
+             "Add a rule: omit sections with no evidence instead of writing placeholder lines."),
+            (40, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — SessionCoordinator.swift", false,
+             "let isProbe = Self.isProbeSession(context: context)"),
+            (48, "Terminal", "com.apple.Terminal", "daypilot — make package", false,
+             "make package\ncodesign --verify — passed\nInstalled to /Applications/DayPilot.app"),
+            (54, "Safari", "com.apple.Safari", "developer.apple.com — SCShareableContent", false,
+             "SCShareableContent.excludingDesktopWindows(_:onScreenWindowsOnly:) — Apple Developer"),
+            (60, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — ReportArchiver.swift", false,
+             "func recordProbeSession(context: SessionCompletionContext) async -> ArchiveOutcome?"),
+            (66, "Notes", "com.apple.Notes", "Draft — launch notes", true,
+             "Landing headline ideas: Know where your day went. Privacy-first work tracker."),
+            (72, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — BriefSanitizer.swift", false,
+             "while value.hasSuffix(\" \") { value.removeLast() }"),
+            (80, "Google Chrome", "com.google.Chrome", "GitHub — Ravinder82/DayPilot", false,
+             "Commits on main: popup-free permission flow, unified console, chief-of-staff brief"),
+            (88, "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — SystemHealth.swift", false,
+             "briefHygieneCheck() — sanitizer regression probe")
+        ]
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        let start = Date().addingTimeInterval(-90 * 60)
+
+        var events: [SessionEvent] = []
+        for seed in seeds {
+            events.append(
+                SessionEvent(
+                    id: UUID().uuidString,
+                    sessionId: "preview",
+                    timestamp: formatter.string(from: start.addingTimeInterval(seed.minute * 60)),
+                    appName: seed.app,
+                    bundleId: seed.bundle,
+                    windowTitle: seed.window,
+                    isEphemeral: seed.ephemeral,
+                    extractedTextDelta: seed.delta
+                )
+            )
+        }
+
+        let context = SessionCompletionContext(
+            sessionId: "preview",
+            startedAt: start,
+            stoppedAt: start.addingTimeInterval(90 * 60),
+            eventCount: events.count,
+            breadcrumbCount: seeds.filter(\.ephemeral).count,
+            suppressedFrameCount: 2
+        )
+
+        // ---- 1. What the model sees -----------------------------------------
+        banner("[1/3] Payload compression")
+        let (payload, pruning) = PromptBuilder.userPayload(events: events, context: context)
+        print("  events read:     \(pruning.eventsRead)")
+        print("  merged:          \(pruning.eventsMerged)")
+        print("  pruned low-dwell:\(pruning.eventsPrunedLowDwell)")
+        print("  included:        \(pruning.eventsIncluded)")
+        print("  payload size:    \(pruning.payloadCharacters) characters")
+
+        if let data = payload.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys]),
+           let text = String(data: pretty, encoding: .utf8) {
+            print("\n  --- payload actually sent to the model ---")
+            print(text)
+        } else {
+            print(payload)
+        }
+
+        // ---- 2. What the model is told --------------------------------------
+        banner("[2/3] System prompt (first 60 lines)")
+        let systemPrompt = PromptBuilder.systemPrompt(memoryContext: "- Founder of a macOS productivity app.\n- Ships small, frequent releases.")
+        print(systemPrompt.components(separatedBy: .newlines).prefix(60).joined(separator: "\n"))
+
+        // ---- 3. What survives the sanitizer ---------------------------------
+        banner("[3/3] Sanitizer — a deliberately awful model reply")
+
+        let dirty = """
+        # ⚡ Indie Velocity Debrief — 2026-10-17
+
+        ### 1. 🚀 Shipped Velocity (The Needle Movers)
+        - Nothing shipped in this session.
+
+        ### 2. ⏱️ The Reality Mirror
+        - You delved into the brief pipeline for a seamless, truly robust morning of deep work.
+        - No ephemeral logs were captured in this session.
+
+        ### 3. 🎯 Tomorrow's Zero-Friction Launchpad
+        - **Target File:** `FancyNew.swift`
+        - **Terminal Command:** `open DayPilot.xcodeproj`
+
+        ### 4. 📊 Where the time went
+        - Xcode — 62m
+        - Google Chrome — 21m
+        """
+
+        print("  --- model reply (raw) ---")
+        print(dirty)
+
+        let cleaned = BriefSanitizer.sanitize(
+            reportMarkdown: dirty,
+            payloadCorpus: payload,
+            date: context.stoppedAt
+        )
+
+        print("  --- after sanitizer ---")
+        print(cleaned)
+
+        let lowered = cleaned.lowercased()
+        let checks: [(String, Bool)] = [
+            ("title canonicalised", cleaned.hasPrefix("# Day Brief — ")),
+            ("emoji stripped", !cleaned.contains("⚡") && !cleaned.contains("🚀")
+                && !cleaned.contains("🎯") && !cleaned.contains("🧲")
+                && !cleaned.contains("⏱") && !cleaned.contains("📊")),
+            ("filler sections dropped", !lowered.contains("nothing shipped") && !lowered.contains("no ephemeral logs")),
+            ("banned phrases dropped", !lowered.contains("delve") && !lowered.contains("seamless")),
+            ("fabricated file dropped", !lowered.contains("fancynew.swift")),
+            ("fabricated command dropped", !lowered.contains("xcodeproj")),
+            ("real content kept", lowered.contains("xcode — 62m")),
+        ]
+
+        print("  --- verdicts ---")
+        var allPassed = true
+        for (label, passed) in checks {
+            if !passed { allPassed = false }
+            print("  \(passed ? "✓" : "✗") \(label)")
+        }
+
+        print("\n  \(allPassed ? "PASS — the pipeline is behaving." : "FAIL — see the ✗ checks above.")")
+    }
+
+    // MARK: - Stress Test Simulation
+
+    /// Runs a stress test with 200 realistic mixed workday OCR events.
+    ///
+    /// Tests: Laya Decision Engine filtering, synthesis quality, zero-trace purge.
+    @MainActor
+    public static func runStressTest() async {
+        let rule = String(repeating: "═", count: 84)
+        func banner(_ title: String) { print("\n\(rule)\n  \(title)\n\(rule)") }
+        func detail(_ label: String, _ value: String) {
+            print("    \(label.padding(toLength: 28, withPad: " ", startingAt: 0))\(value)")
+        }
+
+        banner("STRESS TEST SIMULATION")
+
+        // ---- 1. Sandbox stores ----
+        banner("[1/6] Sandbox stores")
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DayPilotStress-\(UUID().uuidString.prefix(8))", isDirectory: true)
+
+        let userMemory: UserMemoryStore
+        let sessionStore: SessionStore
+        do {
+            userMemory = try UserMemoryStore(directory: sandbox)
+            sessionStore = try await SessionStore.open(directory: sandbox)
+        } catch {
+            print("  FAILED to initialise sandbox: \(error.localizedDescription)")
+            return
+        }
+        detail("sandbox:", sandbox.path)
+
+        let sandboxModel = AppModel(settings: AppSettings(), sessionStore: sessionStore, userMemoryStore: userMemory)
+        if let failure = await sandboxModel.startAsync() {
+            print("  FAILED to boot: \(failure)")
+            return
+        }
+
+        // ---- 2. Generate 200 events ----
+        banner("[2/6] Generating 200 stress-test events")
+
+        let sessionId = await sessionStore.startSession()
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        // Coding sessions (real work)
+        let codingEvents = [
+            ("Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — SessionCoordinator.swift", false,
+             "func stop() async -> SessionCompletion { let outcome = try await synthesise(context: context) }"),
+            ("Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — APIClient.swift", false,
+             "struct ChatCompletionResponse: Decodable { let choices: [Choice] } networking: Fetching from openrouter.ai"),
+            ("Terminal", "com.apple.Terminal", "daypilot — swift build", false,
+             "swift build -c release --product DayPilot\nBuild of product 'DayPilot' complete! (21.4s)"),
+            ("Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — PromptBuilder.swift", false,
+             "func systemPrompt(memoryContext: String) -> String { four passes: noise, harvest, mirror, launchpad }"),
+        ]
+
+        // Transient AI chats (discarded insights)
+        let aiChatEvents = [
+            ("Google Chrome", "com.google.Chrome", "ChatGPT — brainstorm", true,
+             "How to implement a Pomodoro timer in SwiftUI with circular progress ring and phase transitions"),
+            ("Google Chrome", "com.google.Chrome", "Claude — code review", true,
+             "Review this Swift code for memory leaks: class Foo { var bar: Bar? }"),
+            ("Google Chrome", "com.google.Chrome", "Gemini — research", true,
+             "Best practices for security-scoped bookmarks in macOS sandboxed apps"),
+            ("Safari", "com.apple.Safari", "Perplexity — architecture", true,
+             "How to implement vector search with Core ML embeddings on macOS"),
+            ("Google Chrome", "com.google.Chrome", "ChatGPT — prompt", true,
+             "Write a system prompt for an AI that summarizes workday telemetry into a debrief"),
+        ]
+
+        // Secret leaks
+        let secretEvents = [
+            ("TextEdit", "com.apple.TextEdit", "secrets.txt", false,
+             "OPENAI_API_KEY=sk-proj-abc123def456\nDATABASE_PASSWORD=supersecret123\nAWS_SECRET=AKIAIOSFODNN7EXAMPLE"),
+            ("Terminal", "com.apple.Terminal", ".env", false,
+             "GEMINI_API_KEY=AIzaSyAbc123\nSTRIPE_SECRET=sk_live_abc123\nJWT_SECRET=myjwtsecret"),
+            ("Notes", "com.apple.Notes", "Passwords", false,
+             "admin password: hunter2\nroot: toor\napi_token: ghp_abc123def456"),
+        ]
+
+        // Noise/idle screens
+        let noiseEvents = [
+            ("Safari", "com.apple.Safari", "Twitter / X", false, "scrolling through feed..."),
+            ("Safari", "com.apple.Safari", "Reddit", false, "browsing r/programming"),
+            ("Mail", "com.apple.mail", "Inbox", false, "checking email"),
+            ("Finder", "com.apple.finder", "Desktop", false, ""),
+            ("System Settings", "com.apple.systempreferences", "General", false, "adjusting settings"),
+        ]
+
+        var allEvents: [(app: String, bundle: String, window: String, ephemeral: Bool, delta: String)] = []
+
+        // Add coding events (repeat to reach ~112 real events)
+        for _ in 0..<28 {
+            for seed in codingEvents {
+                allEvents.append(seed)
+            }
+        }
+
+        // Add AI chat events
+        for seed in aiChatEvents {
+            allEvents.append(seed)
+        }
+
+        // Add secret events
+        for seed in secretEvents {
+            allEvents.append(seed)
+        }
+
+        // Add noise events (80 total)
+        for _ in 0..<16 {
+            for seed in noiseEvents {
+                allEvents.append(seed)
+            }
+        }
+
+        // Total should be ~200 (28*4=112 + 5 + 3 + 80 = 200)
+        detail("total events:", "\(allEvents.count)")
+        detail("coding events:", "\(codingEvents.count * 28)")
+        detail("AI chat events:", "\(aiChatEvents.count)")
+        detail("secret events:", "\(secretEvents.count)")
+        detail("noise events:", "\(noiseEvents.count * 16)")
+
+        // ---- 3. Run Laya on each event ----
+        banner("[3/6] Running Laya Decision Engine on \(allEvents.count) events")
+
+        var meaningfulCount = 0
+        var droppedCount = 0
+        var purgedCount = 0
+        var insightCount = 0
+        var categoryCounts: [String: Int] = [:]
+
+        let engine = DecisionEngineService()
+
+        for (index, seed) in allEvents.enumerated() {
+            let state = "Active app: \(seed.app), Window: \(seed.window), OCR text: \(seed.delta)"
+            if let decision = await engine.decide(state: state) {
+
+                if !decision.isMeaningfulWork {
+                    droppedCount += 1
+                } else {
+                    meaningfulCount += 1
+                }
+                if decision.dataSensitivity == "secrets" {
+                    purgedCount += 1
+                }
+                if decision.isDiscardedInsight {
+                    insightCount += 1
+                }
+                categoryCounts[decision.workCategory, default: 0] += 1
+            }
+
+            // Record event in SQLite (simulating real capture)
+            let event = SessionEvent(
+                id: UUID().uuidString,
+                sessionId: sessionId,
+                timestamp: formatter.string(from: now.addingTimeInterval(TimeInterval(index * 15))),
+                appName: seed.app,
+                bundleId: seed.bundle,
+                windowTitle: seed.window,
+                isEphemeral: seed.ephemeral,
+                extractedTextDelta: seed.delta
+            )
+            try? await sessionStore.recordEvent(event)
+        }
+
+        detail("meaningful:", "\(meaningfulCount)")
+        detail("dropped (noise):", "\(droppedCount)")
+        detail("purged (secrets):", "\(purgedCount)")
+        detail("discarded insights:", "\(insightCount)")
+        for (cat, count) in categoryCounts.sorted(by: { $0.value > $1.value }) {
+            detail("  \(cat):", "\(count)")
+        }
+        detail("tokens saved:", "\(engine.totalTokensSaved)")
+        detail("avg latency:", "\(String(format: "%.1f", engine.lastLatencyMs))ms")
+
+        // ---- 4. Attach and stop ----
+        banner("[4/6] Running stop() — synthesis + archive + zero-trace purge")
+
+        do {
+            try await sandboxModel.attachForVerification(
+                sessionId: sessionId,
+                startedAt: now.addingTimeInterval(-3000),
+                eventCount: allEvents.count
+            )
+        } catch {
+            print("  FAILED to attach: \(error.localizedDescription)")
+            return
+        }
+
+        let completion = await sandboxModel.stopWorkday()
+        detail("session id:", completion.sessionId)
+        detail("events:", "\(completion.eventCount)")
+        detail("synthesised:", completion.hasReport ? "yes" : "no — \(completion.synthesisFailureReason ?? "unknown")")
+        detail("report path:", completion.reportPath)
+
+        // ---- 5. Verify Day Brief ----
+        banner("[5/6] Day Brief verification")
+
+        // Check archived report file
+        let reportExists = !completion.reportPath.isEmpty && FileManager.default.fileExists(atPath: completion.reportPath)
+        print("  \(reportExists ? "✓" : "✗") Report archived: \(completion.reportPath)")
+
+        if reportExists {
+            let reportText = (try? String(contentsOfFile: completion.reportPath, encoding: .utf8)) ?? ""
+            print("  ✓ Report size: \(reportText.count) chars")
+
+            // Check for Rescued Discarded Insights section
+            let hasRescuedSection = reportText.lowercased().contains("rescued")
+                || reportText.lowercased().contains("recovered")
+                || reportText.lowercased().contains("discarded insight")
+                || reportText.lowercased().contains("harvest")
+            print("  \(hasRescuedSection ? "✓" : "⚠") Rescued Discarded Insights section: \(hasRescuedSection)")
+
+            // Print report preview
+            print("\n  --- Report Preview (first 500 chars) ---")
+            print("  \(String(reportText.prefix(500)))")
+            print("  ---")
+        }
+
+        // Check for zero-trace purge
+        let remainingEvents = await sessionStore.totalEventCount()
+        print("  \(remainingEvents == 0 ? "✓" : "✗") Zero-trace purge: \(remainingEvents) events remaining (should be 0)")
+
+        // ---- 6. Summary ----
+        banner("[6/6] Stress Test Summary")
+
+        print("  Events generated:     \(allEvents.count)")
+        print("  Meaningful (kept):    \(meaningfulCount)")
+        print("  Dropped (noise):      \(droppedCount)")
+        print("  Purged (secrets):     \(purgedCount)")
+        print("  Discarded insights:   \(insightCount)")
+        print("  Tokens saved (Laya):  \(engine.totalTokensSaved)")
+        print("  Report archived:      \(completion.reportPath.isEmpty ? "NO" : "YES")")
+        print("  Zero-trace purge:     \(await sessionStore.totalEventCount() == 0 ? "YES" : "NO")")
+        print("\n  Stress test complete. Sandbox: \(sandbox.path)")
     }
 
 }

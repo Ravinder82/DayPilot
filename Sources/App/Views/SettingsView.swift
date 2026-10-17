@@ -1,11 +1,10 @@
-@preconcurrency import AVFoundation
 import SwiftUI
+import ScreenCaptureKit
 
 /// The tabs of the Settings window, in the order people reach for them.
 enum SettingsTab: Hashable, CaseIterable {
     case providers
     case pomodoro
-    case voice
 }
 
 /// The Settings window (⌘,).
@@ -26,11 +25,9 @@ struct SettingsView: View {
     @State private var hasStoredKey = false
     @State private var verification: Verification?
     @State private var isTesting = false
-    @State private var isPreviewingVoice = false
     @State private var customSheet: CustomProviderMode?
     @State private var showingRemoveProvider = false
     @State private var showingRemoveKeys = false
-    @State private var showingResetPreferences = false
 
     init(model: AppModel, initialTab: SettingsTab = .providers) {
         _model = ObservedObject(wrappedValue: model)
@@ -48,9 +45,6 @@ struct SettingsView: View {
                 .tabItem { Label("Pomodoro", systemImage: "timer") }
                 .tag(SettingsTab.pomodoro)
 
-            voiceTab
-                .tabItem { Label("Voice & Perception", systemImage: "waveform") }
-                .tag(SettingsTab.voice)
         }
         .frame(width: 620, height: 680)
     }
@@ -63,6 +57,8 @@ struct SettingsView: View {
             modelSection
             credentialsSection
             connectionSection
+            permissionSection
+            developerSection
             dangerSection
         }
         .formStyle(.grouped)
@@ -243,11 +239,66 @@ struct SettingsView: View {
         }
     }
 
+    private var permissionSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Button("Refresh Screen Recording Status") {
+                        Task { await refreshPermissionStatus() }
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Grant Accessibility…") {
+                        WindowManager.requestAccessibilityPermissionPrompt()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
+                Text("Accessibility adds window titles to captures — without it DayPilot still records on-screen text. If Screen Recording was just granted, click Refresh. For debug rebuilds that invalidate TCC, run in Terminal:\n  tccutil reset ScreenCapture com.daypilot.app")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } header: {
+            Text("Permissions")
+        } footer: {
+            Text("DayPilot never asks macOS for screen access by itself: the Play button only reads the silent preflight, and the live probe runs when you click Refresh. If a grant looks stuck, quit and reopen DayPilot.")
+        }
+    }
+
+    private func refreshPermissionStatus() async {
+        // Silent preflight first; the live probe only runs once the grant
+        // exists, so this check can never raise a consent dialog of its own.
+        let preflight = ScreenRecordingPermission.isGranted()
+        print("Screen Recording preflight: \(preflight ? "GRANTED" : "NOT GRANTED")")
+        guard preflight else {
+            print("Enable DayPilot in System Settings > Privacy & Security > Screen Recording, then click again.")
+            return
+        }
+        let live = await ScreenRecordingPermission.confirmWithLiveProbe()
+        print("Live probe: \(live ? "OK" : "FAILED")")
+    }
+
     private var dangerSection: some View {
         Section {
             Button("Remove All Stored Keys…", role: .destructive) {
                 showingRemoveKeys = true
             }
+        }
+    }
+
+    private var developerSection: some View {
+        Section {
+            Button("Run Stress Test Simulation") {
+                Task {
+                    await LaunchHarness.runStressTest()
+                }
+            }
+            .help("Feeds 200 realistic mixed workday events through Laya + Synthesis + Zero-Trace purge")
+        } header: {
+            Text("Developer")
+        } footer: {
+            Text("Runs a stress test with 200 events: coding sessions, 5 transient AI chats, 3 secret leaks, 80 noise screens. Verifies Laya filtering, synthesis quality, and zero-trace purge.")
         }
     }
 
@@ -301,11 +352,11 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Auto-start breaks", isOn: autoStartBreaksBinding)
-                Toggle("Auto-start work after break", isOn: autoStartWorkBinding)
                 Toggle("Play sound on phase change", isOn: soundBinding)
             } header: {
                 Text("Behavior")
+            } footer: {
+                Text("One control drives both: Start begins the session and the focus timer, Pause holds both, and Stop ends both and writes the Day Brief. While a session records, work and break phases run one after another.")
             }
 
             Section {
@@ -314,88 +365,11 @@ struct SettingsView: View {
                     settings.pomodoroShortBreakDuration = 5 * 60
                     settings.pomodoroLongBreakDuration = 15 * 60
                     settings.pomodoroCyclesBeforeLongBreak = 4
-                    settings.pomodoroAutoStartBreaks = true
-                    settings.pomodoroAutoStartWork = false
                     settings.pomodoroSoundEnabled = true
                 }
             }
         }
         .formStyle(.grouped)
-    }
-
-    // MARK: - Voice and perception
-
-    private var voiceTab: some View {
-        Form {
-            Section {
-                Picker("Voice", selection: voiceBinding) {
-                    Text("Automatic (recommended)").tag("")
-                    ForEach(VoicePlaybackEngine.availableVoices(), id: \.identifier) { voice in
-                        Text(voiceTitle(voice)).tag(voice.identifier)
-                    }
-                }
-
-                HStack(spacing: 8) {
-                    Button("Preview Voice") {
-                        previewVoice()
-                    }
-                    .disabled(isPreviewingVoice)
-
-                    if isPreviewingVoice {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-                }
-            } header: {
-                Text("Debrief voice")
-            } footer: {
-                Text("Enhanced voices sound much better. Download them in System Settings › Accessibility › Spoken Content.")
-            }
-
-            Section {
-                Toggle("Speak the debrief automatically when the day stops", isOn: autoPlayBinding)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    LabeledContent("Frame interval") {
-                        Text("\(Int(settings.captureIntervalSeconds)) seconds")
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
-                    Slider(value: intervalBinding, in: 5...120, step: 5) {
-                        Text("Frame interval")
-                    } minimumValueLabel: {
-                        Text("5s")
-                    } maximumValueLabel: {
-                        Text("120s")
-                    }
-                    Text("Each sample runs text recognition on the Neural Engine. 15 seconds balances coverage against battery use.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text("Perception")
-            }
-
-            Section {
-                Button("Restore Default Preferences…", role: .destructive) {
-                    showingResetPreferences = true
-                }
-            } footer: {
-                Text("API keys in the Keychain are not affected.")
-            }
-        }
-        .formStyle(.grouped)
-        .confirmationDialog(
-            "Restore every preference to its default?",
-            isPresented: $showingResetPreferences,
-            titleVisibility: .visible
-        ) {
-            Button("Restore Defaults", role: .destructive) {
-                settings.resetToDefaults()
-                model.applySettingsToVoiceEngine()
-            }
-            Button("Cancel", role: .cancel) {}
-        }
     }
 
     // MARK: - Verification feedback
@@ -489,11 +463,6 @@ struct SettingsView: View {
         apiKeyDraft.trimmedForInput
     }
 
-    private func voiceTitle(_ voice: AVSpeechSynthesisVoice) -> String {
-        let quality = voice.quality == .enhanced ? " (Enhanced)" : ""
-        return "\(voice.name)\(quality) — \(voice.language)"
-    }
-
     // MARK: - Actions
 
     /// Reads the stored key and the catalogue for whichever provider is active.
@@ -514,6 +483,7 @@ struct SettingsView: View {
         }
         hasStoredKey = true
         verification = .saved
+        AppConfiguration.shared.update(providerID: activeProvider.id, key: key)
         Task { await model.loadModels(for: activeProvider, force: true) }
     }
 
@@ -521,6 +491,9 @@ struct SettingsView: View {
         KeychainManager.deleteKey(for: activeProvider.id)
         apiKeyDraft = ""
         hasStoredKey = false
+        if AppConfiguration.shared.selectedProviderID == activeProvider.id {
+            AppConfiguration.shared.clear()
+        }
         verification = .info("The key was removed from the Keychain.")
     }
 
@@ -567,20 +540,10 @@ struct SettingsView: View {
         let removed = KeychainManager.deleteAll()
         apiKeyDraft = ""
         hasStoredKey = false
+        AppConfiguration.shared.clear()
         verification = removed == 0
             ? .info("No keys were stored.")
             : .info("Removed \(removed) stored key\(removed == 1 ? "" : "s").")
-    }
-
-    private func previewVoice() {
-        guard let engine = model.speechPreviewEngine else { return }
-        engine.overrideVoiceIdentifier(settings.selectedVoiceIdentifier)
-        engine.previewVoice()
-        isPreviewingVoice = true
-        Task {
-            try? await Task.sleep(for: .seconds(6))
-            isPreviewingVoice = false
-        }
     }
 
     // MARK: - Bindings
@@ -612,23 +575,6 @@ struct SettingsView: View {
             set: { newValue in
                 settings.select(model: newValue, forProvider: activeProvider.id)
             }
-        )
-    }
-
-    private var voiceBinding: Binding<String> {
-        Binding(
-            get: { settings.selectedVoiceIdentifier },
-            set: { newValue in
-                settings.selectedVoiceIdentifier = newValue
-                model.applySettingsToVoiceEngine()
-            }
-        )
-    }
-
-    private var autoPlayBinding: Binding<Bool> {
-        Binding(
-            get: { settings.autoPlayDebrief },
-            set: { settings.autoPlayDebrief = $0 }
         )
     }
 
@@ -664,20 +610,6 @@ struct SettingsView: View {
         Binding(
             get: { settings.pomodoroCyclesBeforeLongBreak },
             set: { settings.pomodoroCyclesBeforeLongBreak = $0 }
-        )
-    }
-
-    private var autoStartBreaksBinding: Binding<Bool> {
-        Binding(
-            get: { settings.pomodoroAutoStartBreaks },
-            set: { settings.pomodoroAutoStartBreaks = $0 }
-        )
-    }
-
-    private var autoStartWorkBinding: Binding<Bool> {
-        Binding(
-            get: { settings.pomodoroAutoStartWork },
-            set: { settings.pomodoroAutoStartWork = $0 }
         )
     }
 

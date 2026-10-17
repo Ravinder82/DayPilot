@@ -54,10 +54,10 @@ struct SkillConfiguration: Sendable, Equatable {
             providers: [
                 .init(
                     id: "google_ai_studio",
-                    label: "Google AI Studio (Gemini 2.0 Flash)",
+                    label: "Google AI Studio (Gemini)",
                     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
                     apiKeyEnvironmentVariable: "GEMINI_API_KEY",
-                    model: "gemini-2.0-flash",
+                    model: "gemini-2.5-flash",
                     temperature: 0.3,
                     maxContextWindow: 1_048_576,
                     costPerMillionInput: 0,

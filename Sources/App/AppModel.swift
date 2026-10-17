@@ -39,11 +39,16 @@ final class AppModel: ObservableObject {
     enum SessionState: Equatable {
         case idle
         case capturing
+        case paused
         case synthesising
-        case speaking
     }
 
     @Published private(set) var sessionState: SessionState = .idle
+    @Published private(set) var isSessionPaused: Bool = false
+    /// True when DayPilot's own screen-recording sheet should be visible.
+    /// Set when a Start attempt finds the grant missing; showing it never
+    /// raises a system dialog.
+    @Published var needsScreenRecordingPermission = false
     @Published private(set) var sessionElapsedSeconds: TimeInterval = 0
     @Published private(set) var eventCount = 0
     @Published private(set) var breadcrumbCount = 0
@@ -67,6 +72,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var pomodoroCycleCount = 0
     @Published private(set) var pomodoroTotalWorkSeconds: TimeInterval = 0
     @Published private(set) var pomodoroTotalBreakSeconds: TimeInterval = 0
+    @Published private(set) var isPomodoroRunning = false
 
     private var pomodoroTimer: Timer?
     private var pomodoroSettingsObserver: NSObjectProtocol?
@@ -75,7 +81,6 @@ final class AppModel: ObservableObject {
 
     @Published private(set) var latestReportPath = ""
     @Published private(set) var latestReportMarkdown = ""
-    @Published private(set) var latestVoiceScript = ""
 
     // MARK: - Library and editor
 
@@ -128,11 +133,8 @@ final class AppModel: ObservableObject {
     /// library. A second connection to the same file would only add contention.
     private var sessionStore: SessionStore?
     private var coordinator: SessionCoordinator?
-    private var voiceEngine: VoicePlaybackEngine?
     private var fileManagerStore: FileManagerStore?
-
-    /// Auditions voices in Settings without touching a live debrief.
-    private static let previewEngine = VoicePlaybackEngine()
+    let decisionEngine: DecisionEngineService
 
     init(
         settings: AppSettings = AppSettings(),
@@ -140,6 +142,7 @@ final class AppModel: ObservableObject {
         userMemoryStore: UserMemoryStore? = nil
     ) {
         self.settings = settings
+        self.decisionEngine = DecisionEngineService()
         let loaded = SkillConfigurationLoader.load()
         skillConfiguration = loaded.configuration
         skillSource = loaded.source
@@ -166,33 +169,18 @@ final class AppModel: ObservableObject {
         skillConfiguration.allProviders(customProfiles: customProfiles)
     }
 
-    var isSpeaking: Bool { voiceEngine?.isSpeaking ?? false }
-    var isPaused: Bool { voiceEngine?.isPaused ?? false }
-    var speechPreviewEngine: VoicePlaybackEngine? { Self.previewEngine }
-
     /// Editing writes to disk only when there is a real file behind the report.
     var reportBodyIsEditable: Bool { !currentReportPath.isEmpty }
 
     var canToggleWorkday: Bool {
         switch sessionState {
-        case .idle, .capturing: return true
-        case .synthesising, .speaking: return false
+        case .idle, .capturing, .paused: return true
+        case .synthesising: return false
         }
-    }
-
-    /// The debrief's voice script belongs to the most recent session only, so the
-    /// audio bar appears only when that session is the one on screen.
-    var canSpeakCurrentDebrief: Bool {
-        guard !latestVoiceScript.isEmpty else { return false }
-        return selectedSessionID == nil || selectedSessionID == lastCompletion?.sessionId
     }
 
     var elapsedClockText: String {
         elapsedText(seconds: Int(sessionElapsedSeconds.rounded(.down)))
-    }
-
-    var voiceSummaryText: String {
-        "Voice: \(voiceEngine?.activeVoice?.name ?? "system default")"
     }
 
     var selectedSession: StoredSession? {
@@ -248,6 +236,15 @@ final class AppModel: ObservableObject {
     // MARK: - File Manager
 
     var fileManager: FileManagerStore? { fileManagerStore }
+
+    // MARK: - Laya Decision Engine
+
+    var tokensSavedByLaya: Int { decisionEngine.totalTokensSaved }
+    var framesProcessedByLaya: Int { decisionEngine.totalFramesProcessed }
+    var framesDroppedByLaya: Int { decisionEngine.totalFramesDropped }
+    var framesPurgedByLaya: Int { decisionEngine.totalFramesPurged }
+    var layaLastLatencyMs: Double { decisionEngine.lastLatencyMs }
+    var layaAvailable: Bool { decisionEngine.isAvailable }
 
     // MARK: - Lifecycle and boot
 
@@ -315,7 +312,8 @@ final class AppModel: ObservableObject {
             let coordinator = SessionCoordinator.makeDefault(
                 sessionStore: store,
                 userMemory: memoryStore,
-                skillConfiguration: skillConfiguration
+                skillConfiguration: skillConfiguration,
+                decisionEngine: decisionEngine
             )
             coordinator.onEvent = { [weak self] summary in
                 self?.eventCount = summary.eventIndex
@@ -326,11 +324,12 @@ final class AppModel: ObservableObject {
             }
 
             self.coordinator = coordinator
-            voiceEngine = coordinator.speech
-            applySettingsToVoiceEngine()
 
             // Initialize file manager store
             fileManagerStore = FileManagerStore()
+
+            // Load API key into memory once
+            AppConfiguration.shared.load()
 
             phase = .ready
             logger.notice("DayPilot ready — \(self.skillSource.description, privacy: .public)")
@@ -359,12 +358,45 @@ final class AppModel: ObservableObject {
 
         do {
             try await coordinator.start()
+            // One panel drives both: a session start starts the focus timer.
+            if !isPomodoroRunning {
+                if pomodoroPhase == .idle {
+                    startPomodoro()
+                } else {
+                    resumePomodoro()
+                }
+            }
             return nil
         } catch {
+            // Missing Screen Recording is the one failure with a guided fix:
+            // surface DayPilot's own sheet instead of macOS's consent popup.
+            if (error as? SessionCoordinatorError) == .screenRecordingDenied {
+                needsScreenRecordingPermission = true
+            }
             lastFailureReason = error.localizedDescription
             logger.error("Could not start the session: \(error.localizedDescription, privacy: .public)")
             return error.localizedDescription
         }
+    }
+
+    /// "Check Again" in DayPilot's screen-recording sheet. The user explicitly
+    /// asked for a verification, so a stale preflight may be settled with the
+    /// live probe; on success the sheet closes and the session starts.
+    @discardableResult
+    func recheckScreenRecordingPermission() async -> Bool {
+        var granted = ScreenRecordingPermission.isGranted()
+        if !granted {
+            granted = await ScreenRecordingPermission.confirmWithLiveProbe()
+        }
+        guard granted else { return false }
+        needsScreenRecordingPermission = false
+        _ = await startWorkday()
+        return true
+    }
+
+    /// Dismisses the screen-recording sheet without starting a session.
+    func dismissScreenRecordingSheet() {
+        needsScreenRecordingPermission = false
     }
 
     /// Stops the session and returns what it produced.
@@ -372,7 +404,7 @@ final class AppModel: ObservableObject {
     /// Never throws and never returns nil: a stopped session always yields a
     /// completion, even when the debrief failed, so the caller can show something
     /// true. The new debrief is selected and opened as soon as it is archived.
-    func stopWorkday(autoPlay: Bool = true) async -> SessionCompletion {
+    func stopWorkday() async -> SessionCompletion {
         guard phase.isReady, let coordinator else {
             let failure = SessionCompletion(
                 sessionId: "",
@@ -391,10 +423,13 @@ final class AppModel: ObservableObject {
 
         let completion = await coordinator.stop()
 
+        if isPomodoroRunning {
+            pausePomodoro()
+        }
+
         lastCompletion = completion
         latestReportPath = completion.reportPath
         latestReportMarkdown = completion.reportMarkdown
-        latestVoiceScript = completion.voiceScript
         lastFailureReason = nil
 
         if !completion.sessionId.isEmpty {
@@ -402,16 +437,10 @@ final class AppModel: ObservableObject {
         }
         await refreshLibrary()
 
-        // Auto-play is a preference, and only ever plays a real script: silence
-        // from a failed debrief would look like a bug.
-        if autoPlay, settings.autoPlayDebrief, !completion.voiceScript.isEmpty {
-            coordinator.speak(completion.voiceScript)
-        }
         return completion
     }
 
-    /// Runs the launch capture cycle on this model, so it drives the same
-    /// coordinator and voice engine the UI uses.
+    /// Runs the launch capture cycle on this model.
     func runLaunchCaptureCycle(seconds: Int) async {
         guard phase.isReady else { return }
 
@@ -435,8 +464,30 @@ final class AppModel: ObservableObject {
             await startWorkday()
         case .capturing:
             _ = await stopWorkday()
-        case .synthesising, .speaking:
-            stopPlayback()
+        case .paused:
+            _ = await stopWorkday()
+        case .synthesising:
+            break
+        }
+    }
+
+    func pauseWorkday() async {
+        guard sessionState == .capturing, let coordinator else { return }
+        await coordinator.pause()
+        sessionState = .paused
+        isSessionPaused = true
+        if isPomodoroRunning {
+            pausePomodoro()
+        }
+    }
+
+    func resumeWorkday() async {
+        guard sessionState == .paused, let coordinator else { return }
+        await coordinator.resume()
+        sessionState = .capturing
+        isSessionPaused = false
+        if !isPomodoroRunning, pomodoroPhase != .idle {
+            resumePomodoro()
         }
     }
 
@@ -447,10 +498,12 @@ final class AppModel: ObservableObject {
             sessionElapsedSeconds = 0
         case .capturing:
             sessionState = .capturing
+            isSessionPaused = false
+        case .paused:
+            sessionState = .paused
+            isSessionPaused = true
         case .synthesising:
             sessionState = .synthesising
-        case .speaking:
-            sessionState = .speaking
         }
     }
 
@@ -458,7 +511,9 @@ final class AppModel: ObservableObject {
     /// window is showing the time, so the value is a stored property that
     /// `@Published` can announce.
     func refreshElapsed() {
-        sessionElapsedSeconds = coordinator?.sessionElapsedSeconds ?? 0
+        if sessionState != .paused {
+            sessionElapsedSeconds = coordinator?.sessionElapsedSeconds ?? 0
+        }
     }
 
     /// `HH:MM:SS`.
@@ -511,8 +566,8 @@ final class AppModel: ObservableObject {
     }
 
     func pausePomodoro() {
-        pomodoroTimer?.invalidate()
-        pomodoroTimer = nil
+        guard pomodoroPhase != .idle else { return }
+        stopPomodoroTimer()
     }
 
     func resumePomodoro() {
@@ -521,8 +576,7 @@ final class AppModel: ObservableObject {
     }
 
     func resetPomodoro() {
-        pomodoroTimer?.invalidate()
-        pomodoroTimer = nil
+        stopPomodoroTimer()
         pomodoroPhase = .idle
         pomodoroElapsedSeconds = 0
         pomodoroCycleCount = 0
@@ -541,9 +595,21 @@ final class AppModel: ObservableObject {
                 self?.pomodoroTick()
             }
         }
+        isPomodoroRunning = true
+    }
+
+    private func stopPomodoroTimer() {
+        pomodoroTimer?.invalidate()
+        pomodoroTimer = nil
+        isPomodoroRunning = false
     }
 
     private func pomodoroTick() {
+        guard pomodoroPhase != .idle else {
+            stopPomodoroTimer()
+            return
+        }
+
         pomodoroElapsedSeconds += 1
 
         switch pomodoroPhase {
@@ -569,19 +635,11 @@ final class AppModel: ObservableObject {
         case .work:
             pomodoroCycleCount += 1
             let isLongBreak = pomodoroCycleCount % settings.pomodoroCyclesBeforeLongBreak == 0
-            if settings.pomodoroAutoStartBreaks {
-                pomodoroPhase = isLongBreak ? .longBreak : .shortBreak
-                pomodoroElapsedSeconds = 0
-            } else {
-                pomodoroPhase = .idle
-            }
+            pomodoroPhase = isLongBreak ? .longBreak : .shortBreak
+            pomodoroElapsedSeconds = 0
         case .shortBreak, .longBreak:
-            if settings.pomodoroAutoStartWork {
-                pomodoroPhase = .work
-                pomodoroElapsedSeconds = 0
-            } else {
-                pomodoroPhase = .idle
-            }
+            pomodoroPhase = .work
+            pomodoroElapsedSeconds = 0
         case .idle:
             return
         }
@@ -746,6 +804,9 @@ final class AppModel: ObservableObject {
 
     func selectProvider(_ id: String) {
         settings.preferredProviderID = id
+        if let key = KeychainManager.getKey(for: id), !key.isEmpty {
+            AppConfiguration.shared.update(providerID: id, key: key)
+        }
     }
 
     func addCustomProvider(label: String, baseURL: String) throws -> CustomProviderProfile {
@@ -777,27 +838,6 @@ final class AppModel: ObservableObject {
         }
         customProfiles = CustomProviderStore.profiles()
         modelsByProvider[profile.id] = nil
-    }
-
-    // MARK: - Playback
-
-    func speakDebrief() {
-        voiceEngine?.speak(text: latestVoiceScript)
-    }
-
-    func pausePlayback() { voiceEngine?.pause() }
-    func resumePlayback() { voiceEngine?.resume() }
-    func stopPlayback() { voiceEngine?.stop() }
-
-    /// Speaks text on a throwaway engine, for the integration test, so a test
-    /// never interrupts a live debrief.
-    func speakDebriefPreview(_ text: String, autoStopAfter: TimeInterval) {
-        Self.previewEngine.speak(text: text, autoStopAfter: autoStopAfter)
-    }
-
-    /// Pushes the chosen voice into the live engine.
-    func applySettingsToVoiceEngine() {
-        voiceEngine?.overrideVoiceIdentifier(settings.selectedVoiceIdentifier)
     }
 
     // MARK: - Verification support

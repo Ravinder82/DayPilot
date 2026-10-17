@@ -24,7 +24,7 @@ struct SessionSidebarView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(model.storedSessions) { session in
-                        SessionRow(session: session)
+                        SessionRow(session: session, model: model)
                             .tag(session.id as String?)
                             .contextMenu {
                                 sessionContextMenu(for: session)
@@ -90,24 +90,46 @@ private struct LiveSessionRow: View {
 private struct SessionRow: View {
 
     let session: StoredSession
+    @ObservedObject private var model: AppModel
+
+    init(session: StoredSession, model: AppModel) {
+        self.session = session
+        self._model = ObservedObject(wrappedValue: model)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(session.displayTitle)
-                .font(.headline)
-                .lineLimit(1)
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(session.displayTitle)
+                    .font(.headline)
+                    .lineLimit(1)
 
-            HStack(spacing: 10) {
-                Label("\(session.eventCount)", systemImage: "rectangle.stack")
-                if session.breadcrumbCount > 0 {
-                    Label("\(session.breadcrumbCount)", systemImage: "sparkles")
+                HStack(spacing: 10) {
+                    Label("\(session.eventCount)", systemImage: "rectangle.stack")
+                    if session.breadcrumbCount > 0 {
+                        Label("\(session.breadcrumbCount)", systemImage: "sparkles")
+                    }
+                    if let duration = session.durationText {
+                        Text(duration)
+                    }
                 }
-                if let duration = session.durationText {
-                    Text(duration)
-                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+
+            Spacer(minLength: 4)
+
+            // Cute delete button
+            Button {
+                Task { await model.deleteSelectedReport() }
+            } label: {
+                Image(systemName: "trash.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.red.opacity(0.7))
+            }
+            .buttonStyle(.plain)
+            .help("Delete this report")
+            .opacity(0.6)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)

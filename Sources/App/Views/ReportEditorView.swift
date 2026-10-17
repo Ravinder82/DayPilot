@@ -32,9 +32,6 @@ struct ReportEditorView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if model.canSpeakCurrentDebrief {
-                AudioBar(model: model)
-            }
         }
         .navigationTitle(model.detailTitle)
         .navigationSubtitle(model.detailSubtitle)
@@ -230,80 +227,5 @@ struct ReportEditorView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-/// Playback controls for the current debrief, with a live speaking indicator.
-private struct AudioBar: View {
-
-    @ObservedObject var model: AppModel
-
-    private var playSymbol: String {
-        model.isSpeaking && !model.isPaused ? "pause.fill" : "play.fill"
-    }
-
-    private var playHelp: String {
-        if model.isSpeaking && !model.isPaused { return "Pause" }
-        if model.isPaused { return "Resume" }
-        return "Play the spoken debrief"
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Divider()
-
-            HStack(spacing: 16) {
-                Button {
-                    model.stopPlayback()
-                    model.speakDebrief()
-                } label: {
-                    Image(systemName: "gobackward")
-                }
-                .help("Play from the beginning")
-                .accessibilityLabel("Play from the beginning")
-
-                Button(action: togglePlayback) {
-                    Image(systemName: playSymbol)
-                        .font(.title2)
-                        .frame(width: 30, height: 30)
-                }
-                .help(playHelp)
-                .accessibilityLabel(playHelp)
-
-                Button {
-                    model.stopPlayback()
-                } label: {
-                    Image(systemName: "stop.fill")
-                }
-                .help("Stop")
-                .accessibilityLabel("Stop")
-                .disabled(!model.isSpeaking && !model.isPaused)
-
-                if model.isSpeaking {
-                    SpeakingIndicator()
-                }
-
-                Spacer()
-
-                Text(model.voiceSummaryText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .buttonStyle(.borderless)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-        }
-        .background(.regularMaterial)
-    }
-
-    private func togglePlayback() {
-        if model.isPaused {
-            model.resumePlayback()
-        } else if model.isSpeaking {
-            model.pausePlayback()
-        } else {
-            model.speakDebrief()
-        }
     }
 }

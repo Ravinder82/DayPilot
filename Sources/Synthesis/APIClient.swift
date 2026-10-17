@@ -121,6 +121,11 @@ struct APIClient {
     /// The model to send. Overrides the provider default, which is how the
     /// Settings model picker actually takes effect.
     let modelOverride: String?
+
+    /// The model that will actually be sent, accounting for user override.
+    var effectiveModel: String {
+        (modelOverride ?? provider.provider.model).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
     private let session: URLSession
 
     init(
@@ -156,6 +161,7 @@ struct APIClient {
     /// Providers are tried in the fixed preference order, so whichever service
     /// the user has actually set up simply works — they do not have to edit the
     /// config to match their key.
+    @MainActor
     static func resolve(
         from skill: SkillConfiguration,
         environment: [String: String] = ProcessInfo.processInfo.environment,
@@ -164,21 +170,40 @@ struct APIClient {
     ) throws -> APIClient {
         let ordered = orderedProviders(skill: skill, preferredProviderID: preferredProviderID)
 
-        if let chosen = ordered.first(where: { provider in
-            if allowKeychain, let stored = KeychainManager.getKey(for: provider.id),
-               !stored.isEmpty {
-                return true
+        // Use cached configuration first (loaded once on launch) to avoid
+        // repeated SecItemCopyMatching calls that trigger Keychain prompts.
+        let config = AppConfiguration.shared
+        if !config.selectedProviderID.isEmpty && !config.apiKey.isEmpty {
+            if let chosen = ordered.first(where: { $0.id == config.selectedProviderID }) {
+                return APIClient(
+                    provider: .init(provider: chosen, apiKey: config.apiKey),
+                    voiceScriptStartTag: skill.audio.voiceScriptStartTag,
+                    voiceScriptEndTag: skill.audio.voiceScriptEndTag,
+                    modelOverride: Self.preferredModelOverride(for: chosen.id)
+                )
             }
+        }
+
+        // Fallback: check Keychain once for the preferred provider
+        if let preferred = preferredProviderID,
+           let chosen = ordered.first(where: { $0.id == preferred }),
+           let stored = KeychainManager.getKey(for: chosen.id),
+           !stored.isEmpty {
+            AppConfiguration.shared.update(providerID: chosen.id, key: stored)
+            return APIClient(
+                provider: .init(provider: chosen, apiKey: stored),
+                voiceScriptStartTag: skill.audio.voiceScriptStartTag,
+                voiceScriptEndTag: skill.audio.voiceScriptEndTag,
+                modelOverride: Self.preferredModelOverride(for: chosen.id)
+            )
+        }
+
+        // Last resort: check environment variables (no Keychain call)
+        if let chosen = ordered.first(where: { provider in
             guard let variable = provider.apiKeyEnvironmentVariable.nilIfEmpty else { return false }
             return environment[variable]?.isEmpty == false
         }) {
-            let apiKey: String
-            if allowKeychain, let stored = KeychainManager.getKey(for: chosen.id),
-               !stored.isEmpty {
-                apiKey = stored
-            } else {
-                apiKey = environment[chosen.apiKeyEnvironmentVariable] ?? ""
-            }
+            let apiKey = environment[chosen.apiKeyEnvironmentVariable] ?? ""
             return APIClient(
                 provider: .init(provider: chosen, apiKey: apiKey),
                 voiceScriptStartTag: skill.audio.voiceScriptStartTag,

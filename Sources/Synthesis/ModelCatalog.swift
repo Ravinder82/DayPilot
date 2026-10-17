@@ -82,7 +82,6 @@ enum ModelCatalog {
         switch provider.id {
         case "google_ai_studio":
             return [
-                AIModel(id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", price: .free, contextWindow: 1_048_576),
                 AIModel(id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", price: .free, contextWindow: 1_048_576),
                 AIModel(id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", price: .unknown, contextWindow: 1_048_576),
                 AIModel(id: "gemini-1.5-flash", label: "Gemini 1.5 Flash", price: .free, contextWindow: 1_048_576)
