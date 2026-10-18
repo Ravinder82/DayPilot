@@ -1,12 +1,15 @@
+import AppKit
 import SwiftUI
 
 /// The Memory tab: a file browser for AI memory folders.
+///
+/// Every indexed file is shown — like a normal file manager, the gallery is
+/// free for all file types; search and the folder filter narrow it further.
 struct FileManagerView: View {
 
     @ObservedObject var store: FileManagerStore
     @State private var searchText = ""
     @State private var selectedFolderIDs: Set<UUID> = []
-    @State private var selectedFileTypes: Set<String> = []
     @State private var showingFolderPicker = false
     @State private var sortOrder: SortOrder = .name
     @State private var sortAscending = true
@@ -22,8 +25,12 @@ struct FileManagerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar
-            HStack {
+            // Toolbar. The fixed height is what keeps this row pinned to the
+            // top: without it, the Divider inside the HStack reports vertical
+            // flexibility, the header becomes a greedy child, and it splits
+            // the window height with the empty state below (the old layout
+            // bug where every control floated mid-air).
+            HStack(spacing: 10) {
                 Button {
                     showingFolderPicker = true
                 } label: {
@@ -32,9 +39,10 @@ struct FileManagerView: View {
                 .help("Add a folder to AI memory")
 
                 Divider()
+                    .frame(height: 18)
 
                 // Search
-                HStack {
+                HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
                     TextField("Search files...", text: $searchText)
@@ -43,9 +51,17 @@ struct FileManagerView: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .frame(width: 250)
+                .frame(width: 240)
 
-                Spacer()
+                if store.isIndexing {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Indexing…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
 
                 // Filter by folder
                 if !store.bookmarks.isEmpty {
@@ -66,66 +82,71 @@ struct FileManagerView: View {
                     } label: {
                         Label(selectedFolderIDs.isEmpty ? "All Folders" : "\(selectedFolderIDs.count) Folders", systemImage: "folder")
                     }
-                    .menuStyle(.borderlessButton)
                     .fixedSize()
                 }
 
-                // Filter by type
+                // Sort order and direction in one menu, so the labels can
+                // never collide the way the old Picker + arrow pair did.
                 Menu {
-                    ForEach(fileTypeCategories, id: \.id) { category in
-                        let ext = category.fileExtension
-                        Toggle(category.label, isOn: Binding(
-                            get: { selectedFileTypes.contains(ext) },
-                            set: { isOn in
-                                if isOn { selectedFileTypes.insert(ext) }
-                                else { selectedFileTypes.remove(ext) }
-                            }
-                        ))
-                    }
-                    if !selectedFileTypes.isEmpty {
-                        Divider()
-                        Button("Clear Type Filter") { selectedFileTypes.removeAll() }
-                    }
-                } label: {
-                    Label(selectedFileTypes.isEmpty ? "All Types" : "\(selectedFileTypes.count) Types", systemImage: "doc.fill")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-
-                // Sort
-                Picker("Sort", selection: $sortOrder) {
                     ForEach(SortOrder.allCases) { order in
-                        Text(order.rawValue).tag(order)
+                        Button {
+                            sortOrder = order
+                        } label: {
+                            if sortOrder == order {
+                                Label(order.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(order.rawValue)
+                            }
+                        }
                     }
-                }
-                .pickerStyle(.menu)
-                .fixedSize()
-                .frame(width: 130)
-
-                Button {
-                    sortAscending.toggle()
+                    Divider()
+                    Button {
+                        sortAscending.toggle()
+                    } label: {
+                        Label(sortAscending ? "Ascending" : "Descending",
+                              systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                    }
                 } label: {
-                    Image(systemName: sortAscending ? "arrow.up" : "arrow.down")
+                    Label("\(sortOrder.rawValue) \(sortAscending ? "↑" : "↓")", systemImage: "arrow.up.arrow.down")
                 }
-                .help("Toggle sort direction")
+                .fixedSize()
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.regularMaterial)
+            .frame(height: 44)
+            .background(.bar)
 
             Divider()
+
+            // Surface indexing failures instead of silently keeping them.
+            if let error = store.lastIndexError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(error)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Retry") { store.reindexAll() }
+                        .font(.caption)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 5)
+                .background(.orange.opacity(0.08))
+                Divider()
+            }
 
             // File list
             if filteredFiles.isEmpty {
                 VStack(spacing: 16) {
-                    Image(systemName: searchText.isEmpty && selectedFolderIDs.isEmpty && selectedFileTypes.isEmpty ? "folder.badge.plus" : "magnifyingglass")
+                    Image(systemName: searchText.isEmpty && selectedFolderIDs.isEmpty ? "folder.badge.plus" : "magnifyingglass")
                         .font(.system(size: 48))
                         .foregroundStyle(.secondary)
-                    Text(searchText.isEmpty && selectedFolderIDs.isEmpty && selectedFileTypes.isEmpty
+                    Text(searchText.isEmpty && selectedFolderIDs.isEmpty
                          ? "No folders added to memory"
                          : "No files match your search")
                         .font(.title3)
-                    if searchText.isEmpty && selectedFolderIDs.isEmpty && selectedFileTypes.isEmpty {
+                    if searchText.isEmpty && selectedFolderIDs.isEmpty {
                         Text("Click \"Add Folder\" to include directories in AI memory. DayPilot will index their contents for search and context.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
@@ -136,7 +157,7 @@ struct FileManagerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(filteredFiles, selection: .constant(Optional<FileManagerStore.FileRecord>.none)) { file in
-                    FileRowView(file: file)
+                    FileRowView(file: file, store: store)
                 }
                 .listStyle(.plain)
             }
@@ -162,10 +183,6 @@ struct FileManagerView: View {
             files = files.filter { selectedFolderIDs.contains($0.folderID) }
         }
 
-        if !selectedFileTypes.isEmpty {
-            files = files.filter { selectedFileTypes.contains($0.fileExtension.lowercased()) }
-        }
-
         // Sort
         files.sort { lhs, rhs in
             let result: Bool
@@ -184,41 +201,12 @@ struct FileManagerView: View {
 
         return files
     }
-
-    // File type filter category
-    private struct FileTypeCategory: Identifiable, Hashable {
-        let id = UUID()
-        let label: String
-        let fileExtension: String
-    }
-
-    private let fileTypeCategories: [FileTypeCategory] = [
-        FileTypeCategory(label: "Text/Markdown", fileExtension: "md"),
-        FileTypeCategory(label: "Text/Markdown", fileExtension: "txt"),
-        FileTypeCategory(label: "Swift", fileExtension: "swift"),
-        FileTypeCategory(label: "Python", fileExtension: "py"),
-        FileTypeCategory(label: "JavaScript", fileExtension: "js"),
-        FileTypeCategory(label: "TypeScript", fileExtension: "ts"),
-        FileTypeCategory(label: "JSON", fileExtension: "json"),
-        FileTypeCategory(label: "YAML", fileExtension: "yaml"),
-        FileTypeCategory(label: "HTML", fileExtension: "html"),
-        FileTypeCategory(label: "CSS", fileExtension: "css"),
-        FileTypeCategory(label: "SQL", fileExtension: "sql"),
-        FileTypeCategory(label: "Shell", fileExtension: "sh"),
-        FileTypeCategory(label: "Rust", fileExtension: "rs"),
-        FileTypeCategory(label: "Go", fileExtension: "go"),
-        FileTypeCategory(label: "Images", fileExtension: "jpg"),
-        FileTypeCategory(label: "Images", fileExtension: "png"),
-        FileTypeCategory(label: "Images", fileExtension: "webp"),
-        FileTypeCategory(label: "PDF", fileExtension: "pdf"),
-        FileTypeCategory(label: "Video", fileExtension: "mp4"),
-        FileTypeCategory(label: "Video", fileExtension: "mov")
-    ]
 }
 
 /// A row in the file list.
 struct FileRowView: View {
     let file: FileManagerStore.FileRecord
+    let store: FileManagerStore
 
     var body: some View {
         HStack(spacing: 12) {
@@ -264,15 +252,22 @@ struct FileRowView: View {
         .contentShape(Rectangle())
         .contextMenu {
             Button("Reveal in Finder") {
-                revealInFinder()
+                if let url = store.resolveFileURL(for: file) {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                }
             }
             Button("Copy Path") {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(file.relativePath, forType: .string)
+                NSPasteboard.general.setString(
+                    store.resolveFileURL(for: file)?.path ?? file.relativePath,
+                    forType: .string
+                )
             }
             if file.isText {
-                Button("Open in Editor") {
-                    openInEditor()
+                Button("Open") {
+                    if let url = store.resolveFileURL(for: file) {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             }
         }
@@ -294,14 +289,6 @@ struct FileRowView: View {
         if file.isCode { return .blue }
         if file.isText { return .green }
         return .secondary
-    }
-
-    private func revealInFinder() {
-        // Would need folder URL - simplified for now
-    }
-
-    private func openInEditor() {
-        // Would open the file in the report editor - simplified for now
     }
 }
 

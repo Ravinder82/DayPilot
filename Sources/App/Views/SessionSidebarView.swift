@@ -34,30 +34,26 @@ struct SessionSidebarView: View {
             }
         }
         .listStyle(.sidebar)
+        // The section header otherwise hugs the bar above it — give the whole
+        // list a breath so "Sessions" sits clearly below the tab switcher.
+        .padding(.top, 8)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Menu {
-                    Button("New Blank Report") { Task { await model.createNewReport(template: .blank) } }
-                    Button("New Daily Debrief") { Task { await model.createNewReport(template: .dailyDebrief) } }
-                    Button("New Project Log") { Task { await model.createNewReport(template: .projectLog) } }
-                    Button("New Meeting Notes") { Task { await model.createNewReport(template: .meetingNotes) } }
-                    Divider()
-                    Button("Duplicate Report") { Task { await model.duplicateSelectedReport() } }
-                        .disabled(model.selectedSession == nil)
-                    Button("Delete Report…", role: .destructive) { Task { await model.deleteSelectedReport() } }
-                        .disabled(model.selectedSession == nil)
+                Button {
+                    Task { await model.createNewReport() }
                 } label: {
                     Image(systemName: "plus")
                 }
-                .help("Create new report")
+                .help("New report")
             }
         }
     }
 
     @ViewBuilder
     private func sessionContextMenu(for session: StoredSession) -> some View {
-        Button("Duplicate") { Task { await model.duplicateSelectedReport() } }
-        Divider()
+        Button(model.isStarred(session.id) ? "Remove Star" : "Star as Best Working Day") {
+            model.toggleStar(session.id)
+        }
         Button("Reveal in Finder") { model.revealLatestReport() }
         Divider()
         Button("Delete…", role: .destructive) { Task { await model.deleteSelectedReport() } }
@@ -127,6 +123,19 @@ private struct SessionRow: View {
 
             Spacer(minLength: 4)
 
+            // Star: marks this day as a best working day. Persisted by session
+            // id, so the mark survives edits and re-listing.
+            Button {
+                model.toggleStar(session.id)
+            } label: {
+                Image(systemName: starred ? "star.fill" : "star")
+                    .font(.system(size: 13))
+                    .foregroundStyle(starred ? Color.yellow : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(starred ? "Remove best-working-day star" : "Star as a best working day")
+            .opacity(starred ? 1 : 0.55)
+
             // Cute delete button
             Button {
                 Task { await model.deleteSelectedReport() }
@@ -142,4 +151,6 @@ private struct SessionRow: View {
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
     }
+
+    private var starred: Bool { model.isStarred(session.id) }
 }

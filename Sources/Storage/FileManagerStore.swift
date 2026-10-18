@@ -290,6 +290,21 @@ final class FileManagerStore: ObservableObject {
 
     // MARK: - Search
 
+    /// The on-disk URL of an indexed file, resolving the owning folder's
+    /// security-scoped bookmark. Returns nil when the folder was moved or
+    /// access was revoked.
+    func resolveFileURL(for record: FileRecord) -> URL? {
+        guard let bookmark = bookmarks.first(where: { $0.id == record.folderID }) else { return nil }
+        var isStale = false
+        guard let folderURL = try? URL(resolvingBookmarkData: bookmark.bookmarkData,
+                                       options: .withSecurityScope,
+                                       relativeTo: nil,
+                                       bookmarkDataIsStale: &isStale),
+              folderURL.startAccessingSecurityScopedResource() else { return nil }
+        defer { folderURL.stopAccessingSecurityScopedResource() }
+        return folderURL.appendingPathComponent(record.relativePath)
+    }
+
     func searchFiles(query: String, folderIDs: Set<UUID>? = nil, fileTypes: Set<String>? = nil) -> [FileRecord] {
         let lowercaseQuery = query.lowercased()
         return fileIndex.filter { record in

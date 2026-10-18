@@ -42,9 +42,30 @@ extension LaunchHarness {
             NSApp.appearance = NSAppearance(named: appearance == "dark" ? .darkAqua : .aqua)
 
             // SwiftUI builds the scenes, and the windows need a moment to draw.
+            // Wait for the window rather than for a fixed interval: how long
+            // SwiftUI takes to place one varies run to run, and a capture taken
+            // before it exists silently records only the Settings window.
             try? await Task.sleep(for: .seconds(4))
             NSApp.activate(ignoringOtherApps: true)
+            let start = CFAbsoluteTimeGetCurrent()
+            let deadline = start + 30
+            var placed = false
+            while CFAbsoluteTimeGetCurrent() < deadline {
+                if NSApp.windows.contains(where: { $0.isVisible && $0.styleMask.contains(.titled) }) {
+                    placed = true
+                    break
+                }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
             print("Activation policy: \(NSApp.activationPolicy().rawValue) (0 = regular, Dock visible)")
+            print(String(format: "Main window after %.1f s: %@ (%d window(s) known to AppKit)",
+                         CFAbsoluteTimeGetCurrent() - start,
+                         placed ? "placed" : "NOT placed",
+                         NSApp.windows.count))
+
+            // Present is not the same as drawn: give the window one pass to
+            // render before the first capture.
+            try? await Task.sleep(for: .seconds(1))
 
             // Capture the main window — Library tab.
             captureTitledWindows(to: directory, label: "\(appearance)-library")

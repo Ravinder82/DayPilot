@@ -98,6 +98,16 @@ final class UserMemoryStore {
         return profile
     }
 
+    /// Replaces the profile wholesale and persists it atomically.
+    ///
+    /// The normal flow only ever appends (telemetry, rules of thumb), so a
+    /// whole-profile write exists for the harness fixtures that install a mock
+    /// persona — and for a profile editor, whenever one arrives.
+    func saveMemory(_ value: UserMemoryProfile) async throws {
+        profile = value
+        try persist(value)
+    }
+
     /// Folds a completed session into the telemetry counters.
     ///
     /// - Parameters:

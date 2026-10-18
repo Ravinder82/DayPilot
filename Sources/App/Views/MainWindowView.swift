@@ -144,11 +144,15 @@ struct MainWindowView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "record.circle.fill")
                         .foregroundStyle(model.sessionState == .paused ? .orange : .green)
-                        .symbolEffect(.pulse, isActive: model.sessionState == .capturing)
                     Text("\(model.sessionState == .paused ? "Paused" : "Recording") · \(model.eventCount) events")
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
                 }
+                // Intrinsic sizing: the toolbar status container keeps the
+                // width it measured at, so a growing event count or an
+                // animating symbol would otherwise spill past its base.
+                .fixedSize()
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("\(model.sessionState == .paused ? "Session paused" : "Recording"), \(model.eventCount) events captured")
             }

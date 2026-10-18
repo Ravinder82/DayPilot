@@ -26,6 +26,15 @@ struct DayPilotApp: App {
         let stdoutBufferMode = Int32(_IOLBF)
         setvbuf(stdout, nil, stdoutBufferMode, 0)
 
+        // Axo's startup cost — one GLB parse plus SceneKit's first-frame shader
+        // and lighting compile, ~0.7s measured — is paid here, off the main
+        // thread, while the model boots and the window is still being built.
+        // Starting it before the CLI harness means a diagnostic run never pays
+        // for a mascot it will not draw.
+        if !LaunchHarness.isCommandLineToolRun {
+            MascotPipeline.shared.startWarmup()
+        }
+
         // CLI first: these exit the process when they run. Deliberately free of
         // any reference to `model` — `init()` runs before the view graph exists,
         // and touching a `@StateObject` there creates a throwaway instance that

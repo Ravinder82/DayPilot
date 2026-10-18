@@ -19,7 +19,7 @@ SIGNING_IDENTITY := 96302F2E3A8FCA75B4D03A5F464BC1B5AEA57D04
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup build run selftest integration-test icon package install snapshots clean
+.PHONY: help setup build run selftest integration-test mock-debrief icon package install snapshots clean
 
 help:
 	@printf '%s\n' \
@@ -34,6 +34,7 @@ help:
 		'  make snapshots  capture the windows to PNG, no permissions needed' \
 		'  make selftest   run the system health check and exit' \
 		'  make integration-test  full synthesis run (needs a provider key or a mock)' \
+		'  make mock-debrief     one debrief from a mock 12-min session (needs a key)' \
 		'  make clean      remove build artifacts'
 
 setup:
@@ -61,6 +62,12 @@ selftest: build
 # config for the provider, and DAYPILOT_CONFIG to point somewhere else.
 integration-test: build
 	@exec $(BINARY) --integration-test
+
+# One debrief from a mock ~12-minute indie-developer/freelancer session, in a
+# sandbox — the base fixture for refining the briefing backend. Needs a
+# provider key in the environment (e.g. export GEMINI_API_KEY=…).
+mock-debrief: build
+	@exec $(BINARY) --mock-debrief
 
 # Renders AppIcon.icns from nothing: a drawn squircle, radar rings and a focal
 # point, then iconutil to package it.

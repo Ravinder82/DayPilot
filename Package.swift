@@ -45,6 +45,8 @@ let package = Package(
                 .linkedFramework("Vision"),
                     .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
+                .linkedFramework("SceneKit"),
+                .linkedFramework("Metal"),
                 .linkedFramework("CoreGraphics"),
                 .linkedLibrary("sqlite3")
             ]

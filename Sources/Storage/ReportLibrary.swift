@@ -98,14 +98,17 @@ enum ReportLibrary {
 
     // MARK: - CRUD
 
-    /// Creates a new report from a template, returns the new session ID and path.
-    static func createNew(template: ReportTemplate = .blank) -> (sessionId: String, path: String, markdown: String) {
+    /// Creates a new empty report, returns the new session ID and path.
+    ///
+    /// One kind of report, and it starts blank: the brief the session writes is
+    /// the content, so there are no templates to choose from.
+    static func createNew() -> (sessionId: String, path: String, markdown: String) {
         let date = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let uuid = UUID().uuidString.prefix(8).uppercased()
         let sessionId = "session_\(date)_\(uuid)"
         let fileName = "\(date)_\(sessionId).md"
         let url = baseDirectory().appendingPathComponent(fileName)
-        let markdown = template.markdown
+        let markdown = ""
         try? Data(markdown.utf8).write(to: url, options: .atomic)
         return (sessionId, url.path, markdown)
     }
@@ -118,20 +121,6 @@ enum ReportLibrary {
         let trashURL = trashDir.appendingPathComponent(url.lastPathComponent)
         try FileManager.default.moveItem(at: url, to: trashURL)
         logger.info("Report moved to Trash: \(sessionId, privacy: .public)")
-    }
-
-    /// Duplicates a report as a new entry.
-    static func duplicate(sessionId: String) throws -> (sessionId: String, path: String, markdown: String) {
-        guard let loaded = load(sessionId: sessionId) else {
-            throw ReportLibraryError.writeFailed("Report not found")
-        }
-        let date = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-        let uuid = UUID().uuidString.prefix(8).uppercased()
-        let newSessionId = "session_\(date)_\(uuid)"
-        let fileName = "\(date)_\(newSessionId).md"
-        let url = baseDirectory().appendingPathComponent(fileName)
-        try Data(loaded.text.utf8).write(to: url, options: .atomic)
-        return (newSessionId, url.path, loaded.text)
     }
 
     /// Exports a report to a user-chosen location in the given format.
@@ -174,28 +163,6 @@ enum ReportLibrary {
         let contents = try FileManager.default.contentsOfDirectory(atPath: trashDir.path)
         for file in contents {
             try FileManager.default.removeItem(at: trashDir.appendingPathComponent(file))
-        }
-    }
-}
-
-/// Template for new reports.
-public enum ReportTemplate {
-    case blank
-    case dailyDebrief
-    case projectLog
-    case meetingNotes
-
-    var markdown: String {
-        let date = Date().formatted(date: .complete, time: .omitted)
-        switch self {
-        case .blank:
-            return ""
-        case .dailyDebrief:
-            return "# Daily Debrief — \(date)\n\n## What Shipped\n\n## What Leaked\n\n## Friction & Lessons\n\n## Tomorrow's Launchpad\n"
-        case .projectLog:
-            return "# Project Log — \(date)\n\n## Progress\n\n## Blockers\n\n## Decisions\n\n## Next Steps\n"
-        case .meetingNotes:
-            return "# Meeting Notes — \(date)\n\n## Attendees\n\n## Agenda\n\n## Discussion\n\n## Action Items\n"
         }
     }
 }

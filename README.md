@@ -17,7 +17,8 @@ Press **Start**, forget it exists. Press **Stop & Debrief**, get an honest chief
 
 | Area | Highlights |
 |------|------------|
-| **🗂 Session Library** | Live session row with pulsing timer • Archived sessions with event/breadcrumb counts • Context menu: Duplicate, Delete, Reveal in Finder |
+| **🗂 Session Library** | Live session row with pulsing timer • Archived sessions with event/breadcrumb counts • One plain **+** button that makes an empty report • Context menu: Star, Delete, Reveal in Finder |
+| **🦎 Axo, the mascot** | A SceneKit axolotl rendered from `Resources/axo.glb` • Greets you on a fresh install with a two-column welcome screen • Waves once on arrival (skipped when Reduce Motion is on) • Warmed up off the main thread at launch, so the stage is ready instantly — never a blank box |
 | **📝 Report Editor** | Rendered Markdown by default • Source edit mode (⌘⇧U) with debounced auto-save • Code blocks with copy button • Tables, quotes, lists • Export: Markdown, HTML, PDF, Plain Text |
 | **⏱ Session Console** | One play/pause toggle + Stop & Debrief in the top bar • A plain stopwatch counts the session upward, holds on pause, resets on stop • Pause never writes a brief — only Stop does |
 | **📋 Day Brief** | Chief-of-staff debrief written from a deterministic evidence pack • BLUF opener, dynamic sections, artifacts verified against the payload • Slop filter: no emoji, canned phrases, or fabricated paths ever reach the report |
@@ -54,8 +55,11 @@ DayPilotApp (@main)
 └── UI (SwiftUI)
     ├── MainWindowView        # Top bar: Library | Memory + focus console
     │   ├── SessionSidebarView
-    │   ├── ReportEditorView
+    │   ├── ReportEditorView   # Editor + the fresh-install greeting
     │   └── FileManagerView
+    ├── Views/3D
+    │   ├── MascotPipeline     # Off-main warm-up: parse once, pool stages, lite rig
+    │   └── AxoMascot          # Scene builders + the SCNView representable
     └── SettingsView          # Provider, model, permissions, developer tools
 ```
 
@@ -117,9 +121,29 @@ make clean            # Remove .build, .swiftpm, dist/
 | `--test-connection <provider>` | Test a key via `DAYPILOT_TEST_KEY` env |
 | `--list-models <provider>` | Print live model catalogue |
 | `--no-capture` | Skip launch capture cycle |
+| `--mascot-bench` | Print Axo's measured warm-up breakdown & exit |
 | `--preview-fixtures` | Show sample content (for screenshots) |
 | `--snapshot-windows <dir>` | Capture own windows to PNG |
 | `--snapshot-appearance light\|dark` | Appearance for snapshots |
+
+---
+
+## 🦎 Axo's Warm-Up
+
+Axo's cost is paid once, off the main thread, at launch — so the mascot is simply *there* when a window asks for it, with no blank box and no pop-in:
+
+1. **Parse** `Resources/axo.glb` into a template node (clone it per stage rather than re-parsing).
+2. **Build** one full stage from that template.
+3. **Render one 64 px offscreen frame**, which is what makes SceneKit compile every shader and bake the IBL.
+4. **Pool** the finished scene; a window that arrives early gets a cheap "lite" rig and upgrades in place.
+
+Measure it yourself:
+
+```bash
+./.build/release/DayPilot --mascot-bench
+```
+
+Typical numbers on an M-series Mac: parse ≈ 6 ms, stage build ≈ 1 ms, offscreen first frame ≈ 33 ms with a warm OS shader cache — **≈ 110 ms total, none of it on the main thread**. On a cold shader cache that first frame is the whole budget (≈ 0.5–1 s), which is exactly why it is done in the background instead of in front of a window.
 
 ---
 
@@ -131,14 +155,8 @@ make clean            # Remove .build, .swiftpm, dist/
 3. Click **Refresh List** → pick a model (e.g. `meta-llama/Llama-3-70b`)
 4. Done — works like any built-in provider
 
-### Report Templates
-```swift
-// In ReportLibrary.swift — add to ReportTemplate enum
-case weeklyReview
-    var markdown: String {
-        "# Weekly Review — \(date)\n\n## Shipped\n\n## Learned\n\n## Next Week\n"
-    }
-```
+### Write a Report by Hand
+`+` in the session sidebar makes an empty report in today's folder. It opens in source mode (⌘⇧U) so you can type the brief yourself — no template, no scaffolding to delete first.
 
 ### File Manager Cleanup
 ```swift

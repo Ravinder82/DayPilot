@@ -67,6 +67,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var storedSessions: [StoredSession] = []
     @Published private(set) var storedSessionsMessage = ""
 
+    /// Sessions the user starred as best working days, keyed by session id.
+    @Published private(set) var starredSessionIDs: Set<String> = []
+
     /// The session selected in the sidebar. `nil` shows the newest debrief.
     @Published var selectedSessionID: String?
 
@@ -227,6 +230,25 @@ final class AppModel: ObservableObject {
 
     var fileManager: FileManagerStore? { fileManagerStore }
 
+    // MARK: - Starred days
+
+    private let starsDefaultsKey = "session.stars.v1"
+
+    func isStarred(_ sessionID: String) -> Bool {
+        starredSessionIDs.contains(sessionID)
+    }
+
+    /// Stars/unstars a session as a best working day. Persisted in user
+    /// defaults keyed by session id, so marks survive report edits.
+    func toggleStar(_ sessionID: String) {
+        if starredSessionIDs.contains(sessionID) {
+            starredSessionIDs.remove(sessionID)
+        } else {
+            starredSessionIDs.insert(sessionID)
+        }
+        UserDefaults.standard.set(Array(starredSessionIDs), forKey: starsDefaultsKey)
+    }
+
     // MARK: - Laya Decision Engine
 
     var tokensSavedByLaya: Int { decisionEngine.totalTokensSaved }
@@ -249,8 +271,12 @@ final class AppModel: ObservableObject {
 
         // Fixture runs only show the window, and command-line runs drive a sandboxed
         // model of their own. Booting the real one beside either would start a live
-        // capture of the user's screen.
-        guard !LaunchHarness.usesPreviewFixtures, !LaunchHarness.isCommandLineToolRun else { return }
+        // capture of the user's screen. Window snapshots are the same case: they
+        // depict the app's UI against a throwaway HOME, where the real subsystems
+        // have nothing to capture and would only ask for permissions.
+        guard !LaunchHarness.usesPreviewFixtures,
+              !LaunchHarness.isCommandLineToolRun,
+              LaunchHarness.snapshotDirectory == nil else { return }
 
         Task { @MainActor in
             if let failure = await startAsync() {
@@ -318,6 +344,9 @@ final class AppModel: ObservableObject {
             // Initialize file manager store
             fileManagerStore = FileManagerStore()
 
+            // Restore starred best-working-day marks.
+            starredSessionIDs = Set(UserDefaults.standard.stringArray(forKey: starsDefaultsKey) ?? [])
+
             // Load API key into memory once
             AppConfiguration.shared.load()
 
@@ -348,6 +377,7 @@ final class AppModel: ObservableObject {
 
         do {
             try await coordinator.start()
+            MascotSession.shared.setMood(.working)
             return nil
         } catch {
             // Missing Screen Recording is the one failure with a guided fix:
@@ -404,6 +434,7 @@ final class AppModel: ObservableObject {
         }
 
         let completion = await coordinator.stop()
+        MascotSession.shared.setMood(.think)
 
         lastCompletion = completion
         latestReportPath = completion.reportPath
@@ -451,11 +482,13 @@ final class AppModel: ObservableObject {
 
     func pauseWorkday() async {
         guard sessionState == .capturing, let coordinator else { return }
+        MascotSession.shared.setMood(.idle)
         await coordinator.pause()
     }
 
     func resumeWorkday() async {
         guard sessionState == .paused, let coordinator else { return }
+        MascotSession.shared.setMood(.working)
         await coordinator.resume()
     }
 
@@ -591,10 +624,13 @@ final class AppModel: ObservableObject {
 
     // MARK: - Report CRUD
 
-    /// Creates a new report from a template and selects it.
-    func createNewReport(template: ReportTemplate = .blank) async {
+    /// Creates a new empty report and selects it.
+    ///
+    /// One report, one file. The brief a session writes fills it in; there is
+    /// no template to pick from first.
+    func createNewReport() async {
         flushPendingReportWrite()
-        let (sessionId, path, markdown) = ReportLibrary.createNew(template: template)
+        let (sessionId, path, markdown) = ReportLibrary.createNew()
         selectedSessionID = sessionId
         setReportBody(markdown, path: path)
         await refreshLibrary()
@@ -607,17 +643,6 @@ final class AppModel: ObservableObject {
         try? ReportLibrary.delete(sessionId: session.id)
         selectedSessionID = nil
         await refreshLibrary()
-    }
-
-    /// Duplicates the currently selected report.
-    func duplicateSelectedReport() async {
-        guard let session = selectedSession else { return }
-        flushPendingReportWrite()
-        if let (newId, newPath, markdown) = try? ReportLibrary.duplicate(sessionId: session.id) {
-            selectedSessionID = newId
-            setReportBody(markdown, path: newPath)
-            await refreshLibrary()
-        }
     }
 
     /// Exports the currently selected report.

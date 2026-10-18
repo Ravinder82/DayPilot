@@ -25,13 +25,28 @@ struct ReportEditorView: View {
                 if model.isEditingSource {
                     sourceEditor
                 } else if model.reportBody.isEmpty {
-                    emptyState
+                    if isFreshState {
+                        welcomeState
+                    } else {
+                        emptyState
+                    }
                 } else {
                     renderedReport
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+        }
+        // Axo floats over every debrief: no card, no container — a free-floating
+        // companion pinned to the corner while the report scrolls beneath it.
+        // Invisible to clicks, so text selection keeps working underneath.
+        .overlay(alignment: .bottomTrailing) {
+            if !model.reportBody.isEmpty {
+                AxoStageView()
+                    .frame(width: 195, height: 195)
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 10)
+                    .allowsHitTesting(false)
+            }
         }
         .navigationTitle(model.detailTitle)
         .navigationSubtitle(model.detailSubtitle)
@@ -227,5 +242,165 @@ struct ReportEditorView: View {
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - Welcome (fresh state)
+
+    /// True only on a fresh install: nothing captured, no debrief to show.
+    /// That is the screen Axo greets on — every other empty case keeps the
+    /// quiet "No debrief yet" state.
+    private var isFreshState: Bool {
+        model.reportBody.isEmpty && model.storedSessions.isEmpty
+    }
+
+    /// Axo's own colour, taken from the mascot rather than from a picker, so
+    /// the stage and the copy read as one screen.
+    private static let axoMint = Color(red: 0.31, green: 0.82, blue: 0.75)
+
+    /// The greeting screen.
+    ///
+    /// Two columns, because the mascot is the subject and deserves the room:
+    /// Axo stands in his own light on the left, the copy is left-aligned on
+    /// the right. Stacking the figure *above* the text is what made the old
+    /// screen run past the bottom of the window — the figure now costs the
+    /// layout no vertical space at all, and the whole composition stays
+    /// centred however tall the window is.
+    ///
+    /// Every line here is bounded by a `maxWidth` and nothing uses
+    /// `fixedSize(horizontal: false, vertical: true)`. That modifier asks a
+    /// `Text` for its ideal height, and SwiftUI answers it by re-proposing a
+    /// near-zero width, so a wrapped line comes back as one character per
+    /// row: the greeting alone measured 6,763 pt tall, tall enough that
+    /// SwiftUI never placed the window on screen at all. Bounding the width
+    /// instead lets the text wrap and keeps the ideal size honest.
+    ///
+    /// The three steps are the daily loop. A connecting rail was tried and
+    /// cut again — a `Rectangle` constrained in width but not height absorbs
+    /// the full height the stack proposes, so the rail stretched the rows
+    /// until the last steps fell off the window. The sequence reads from the
+    /// copy itself, "Press ▶" through "Press ■", and needs no drawn line.
+    private var welcomeState: some View {
+        HStack(alignment: .center, spacing: 0) {
+            welcomeStage
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Welcome to DayPilot")
+                    .font(.system(size: 30, weight: .bold))
+                    .tracking(-0.5)
+
+                Text("Your workday, captured quietly — and written up as a brief you can act on.")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .padding(.top, 8)
+                    .frame(maxWidth: 400, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 20) {
+                    welcomeStep("Start your workday",
+                                "Press ▶. Axo wakes up and DayPilot starts watching your work — screen text only, never video.")
+                    welcomeStep("Work as usual",
+                                "Code, browse, build. Your apps, windows and lines of text are captured quietly in the background.")
+                    welcomeStep("Stop for your Day Brief",
+                                "Press ■. DayPilot writes where the time went, what moved, and tomorrow's first move.")
+                }
+                .padding(.top, 26)
+
+                Text("Open the Memory tab to add a folder — every file your AI memory can reach, in one browser.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .lineSpacing(2)
+                    .padding(.top, 24)
+                    .frame(maxWidth: 400, alignment: .leading)
+
+                if !model.hasAnyProviderKey {
+                    SettingsLink {
+                        Label("Connect an AI Provider…", systemImage: "key.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .padding(.top, 22)
+                }
+            }
+            .frame(maxWidth: 440, alignment: .leading)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onAppear { greetOnArrival() }
+    }
+
+    /// Axo's stage: the figure at a size that reads as the subject, sitting in
+    /// a low pool of his own light. No panel and no card behind him — the glow
+    /// and the contact shadow the scene already draws are the only edge he
+    /// gets, so he reads as lit rather than boxed.
+    private var welcomeStage: some View {
+        ZStack {
+            Ellipse()
+                .fill(
+                    RadialGradient(
+                        colors: [Self.axoMint.opacity(0.26), Self.axoMint.opacity(0)],
+                        center: .center, startRadius: 0, endRadius: 118
+                    )
+                )
+                .frame(width: 280, height: 280)
+
+            AxoStageView()
+                .frame(width: 250, height: 250)
+        }
+        // Fixed in both axes. The stage wraps an `SCNView`, whose intrinsic
+        // size is not ours to predict: left unconstrained it dragged the whole
+        // greeting's ideal height into the thousands of points, which is what
+        // stopped SwiftUI from ever placing the window on screen.
+        .frame(width: 300, height: 320)
+        .fixedSize()
+        .accessibilityElement()
+        .accessibilityLabel("Axo, the DayPilot mascot")
+    }
+
+    /// One step of the daily loop.
+    ///
+    /// The mint dot is the only marker. A connecting rail was tried first and
+    /// cut again: a `Rectangle` constrained in width but not height absorbs the
+    /// full height the stack proposes, so the rail stretched the rows until the
+    /// title and the last steps fell off the window. The sequence reads from
+    /// the copy itself — "Press ▶" through "Press ■" — and does not need a
+    /// line drawn between them.
+    private func welcomeStep(_ title: String, _ detail: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Circle()
+                .fill(Self.axoMint)
+                .frame(width: 8, height: 8)
+                .padding(.top, 5)
+                .fixedSize()
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13.5, weight: .semibold))
+                Text(detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .frame(maxWidth: 340, alignment: .leading)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// One greeting wave when Axo first appears on a still-idle app. The mood
+    /// returns to idle after the beat, but only if neither the user nor the
+    /// session lifecycle has claimed it in the meantime. Skipped entirely when
+    /// the system is reducing motion.
+    private func greetOnArrival() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        guard model.sessionState == .idle, MascotSession.shared.mood == .idle else { return }
+        MascotSession.shared.setMood(.celebrate)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            if model.sessionState == .idle, MascotSession.shared.mood == .celebrate {
+                MascotSession.shared.setMood(.idle)
+            }
+        }
     }
 }

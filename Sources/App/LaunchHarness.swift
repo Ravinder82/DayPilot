@@ -27,7 +27,7 @@ enum LaunchHarness {
     /// True when a CLI diagnostic mode was requested. Those runs drive a sandboxed
     /// model of their own, so the window must not boot the real one beside them.
     static var isCommandLineToolRun: Bool {
-        let flags = ["--selftest", "--integration-test", "--test-connection", "--list-models", "--stress-test", "--brief-preview"]
+        let flags = ["--selftest", "--integration-test", "--test-connection", "--list-models", "--stress-test", "--brief-preview", "--mock-debrief", "--mascot-bench"]
         return CommandLine.arguments.contains { flags.contains($0) }
     }
 
@@ -39,6 +39,18 @@ enum LaunchHarness {
     @MainActor
     static func runCommandLineModesIfNeeded() {
         let arguments = CommandLine.arguments
+
+        // The mascot's measured warm-up breakdown: parse, stage build, the
+        // offscreen first frame that compiles every shader, and what a stage
+        // asked for afterwards costs. No window is created.
+        if arguments.contains("--mascot-bench") {
+            MascotPipeline.shared.startWarmup()
+            MascotPipeline.shared.whenWarmupFinished {
+                print(MascotPipeline.shared.report())
+                exit(0)
+            }
+            return
+        }
 
         if arguments.contains("--selftest") {
             Task { @MainActor in
@@ -56,6 +68,18 @@ enum LaunchHarness {
             Task { @MainActor in
                 await Self.runIntegrationTest()
                 try? await Task.sleep(for: .seconds(12))
+            }
+            return
+        }
+
+        // `--mock-debrief`: writes a debrief from a mock ~12-minute
+        // indie-developer/freelancer session inside a sandbox — the base
+        // fixture for refining the briefing backend without a live capture.
+        // Needs a provider key in the environment, like --integration-test.
+        if arguments.contains("--mock-debrief") {
+            Task { @MainActor in
+                await Self.runMockDebrief()
+                exit(0)
             }
             return
         }
@@ -467,6 +491,325 @@ enum LaunchHarness {
         print("  \(sandbox.path)")
     }
 
+
+    // MARK: - Mock debrief (backend refinement fixture)
+
+    /// Generates one debrief from a mock ~12-minute session in a sandbox.
+    ///
+    /// The fixture is a realistic indie-developer + freelancer morning: client
+    /// iOS work, a PR review, an invoice clearing, then a build block on the
+    /// user's own product — with the memory profile swapped to a two-hats
+    /// persona first, so the prompt that gets tested is the prompt a freelancer
+    /// would actually receive. Everything runs in a temporary directory: the
+    /// real database, memory profile and reports are never touched. The
+    /// sandbox is left in place so the run can be inspected and diffed against
+    /// the next refinement iteration.
+    ///
+    ///     export GEMINI_API_KEY=…   # or any other provider's key
+    ///     make mock-debrief
+    @MainActor
+    private static func runMockDebrief() async {
+        let rule = String(repeating: "═", count: 84)
+
+        func banner(_ title: String) {
+            print("\n\(rule)\n  \(title)\n\(rule)")
+        }
+
+        func detail(_ label: String, _ value: String) {
+            print("    \(label.padding(toLength: 28, withPad: " ", startingAt: 0))\(value)")
+        }
+
+        let configuration = SkillConfigurationLoader.load()
+
+        banner("MOCK DEBRIEF — INDIE DEVELOPER + FREELANCER, ~12 MINUTES")
+
+        // ---- 1. Provider preflight --------------------------------------------
+
+        let available = configuration.configuration.availableProviders()
+        if available.isEmpty {
+            print("  No API key is configured for any provider.")
+            print("  Set one of these in your environment and re-run:")
+            for provider in configuration.configuration.apiProviders.providers {
+                print("    export \(provider.apiKeyEnvironmentVariable)=\"sk-…\"   # \(provider.label)")
+            }
+            return
+        }
+
+        let provider = available[0]
+        let apiKey = ProcessInfo.processInfo.environment[provider.apiKeyEnvironmentVariable] ?? ""
+        detail("provider:", provider.displayName)
+        detail("key:", apiKey.count > 8 ? "\(apiKey.prefix(4))…\(apiKey.suffix(4))" : "present")
+
+        // ---- 2. Sandbox stores -------------------------------------------------
+
+        banner("[1/5] Sandbox stores")
+
+        let sandbox = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DayPilotMockDebrief-\(UUID().uuidString.prefix(8))", isDirectory: true)
+
+        let userMemory: UserMemoryStore
+        let sessionStore: SessionStore
+        do {
+            userMemory = try UserMemoryStore(directory: sandbox)
+            sessionStore = try await SessionStore.open(directory: sandbox)
+        } catch {
+            print("  FAILED to initialise the sandbox stores: \(error.localizedDescription)")
+            return
+        }
+
+        detail("sandbox:", sandbox.path)
+
+        let sandboxModel = AppModel(
+            settings: AppSettings(),
+            sessionStore: sessionStore,
+            userMemoryStore: userMemory
+        )
+
+        // ---- 3. Persona: indie developer + freelancer --------------------------
+
+        banner("[2/5] Memory profile — two hats")
+
+        let profile = UserMemoryProfile(
+            userIdentity: .init(
+                role: "Indie Developer & Freelancer",
+                coreStack: ["Swift", "SwiftUI", "React Native", "Expo", "TypeScript", "Python"],
+                ecosystems: ["iOS / App Store Connect", "RevenueCat", "Client retainers (Northwind)", "AI APIs & MCP"]
+            ),
+            appPurposeAndMandate: .init(
+                whatDayPilotDoesForMe: """
+                Acts as my chief of staff across two hats — billable client freelance work and my \
+                own indie products. It watches my work between Start and Stop, keeps client delivery \
+                time distinct from build time on my own apps, and turns loose thoughts into \
+                shippable next steps.
+                """,
+                trackingPhilosophy: """
+                Passive capture via Neural Engine OCR. Zero video storage. High-density synthesis \
+                only — brief me like an executive, not a diary.
+                """
+            ),
+            activeProjects: [
+                .init(
+                    name: "DayPilot",
+                    type: "macOS indie product",
+                    status: "In active development",
+                    objective: "Ship the menu bar productivity agent and publish FlyMascots on npm"
+                ),
+                .init(
+                    name: "Northwind ClientApp",
+                    type: "Freelance client iOS app",
+                    status: "Retainer — weekly delivery",
+                    objective: "Invoice list fixes and TestFlight builds on request"
+                )
+            ],
+            cognitiveProfile: .init(
+                peakFlowWindow: "Morning / Early Afternoon",
+                frictionPatterns: [
+                    "Context-switching between client tickets and my own product",
+                    "Browsing X/Twitter instead of shipping"
+                ],
+                creativeHabits: [
+                    "Drafting ideas in Stickies",
+                    "Testing prompts in AI Studio and closing tabs"
+                ]
+            ),
+            cumulativeRulesOfThumb: [
+                "Always resolve actor isolation warnings at class boundaries rather than async callback wraps.",
+                "Never let transient ideas die in closed browser tabs; harvest them immediately."
+            ],
+            sessionTelemetrySummary: .init(
+                totalSessionsCompleted: 0,
+                totalHoursTracked: 0.0,
+                totalBreadcrumbsHarvested: 0,
+                lastSessionTimestamp: nil
+            )
+        )
+        try? await userMemory.saveMemory(profile)
+        detail("role:", profile.userIdentity.role)
+        detail("projects:", profile.activeProjects.map(\.name).joined(separator: " · "))
+
+        // ---- 4. The mock session: 13 events over 12 minutes --------------------
+
+        banner("[3/5] Mock session — 13 events over 12 minutes")
+
+        if let failure = await sandboxModel.startAsync() {
+            print("  FAILED to configure the sandbox model: \(failure)")
+            return
+        }
+
+        let sessionId = await sessionStore.startSession()
+        let now = Date()
+        let windowSeconds = 720
+        let stamps = stride(from: -windowSeconds, through: 0, by: 60).map { now.addingTimeInterval(TimeInterval($0)) }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        // A fragmented but honest freelancer morning: client fix first, PR and
+        // invoice around it, then a build block on the user's own product.
+        // Every non-ephemeral event sits 60s apart (above the 30s dwell floor),
+        // the error line leads event 1 (friction), and the domain-prefixed
+        // browser titles are what the evidence step parses into artifacts.
+        let seeds: [(app: String, bundle: String, window: String, ephemeral: Bool, delta: String)] = [
+            (
+                "Xcode", "com.apple.dt.Xcode", "ClientApp.xcodeproj — InvoiceListViewModel.swift", false,
+                """
+                error: cannot find 'InvoiceState' in scope
+                func invoiceState(for id: String) -> InvoiceState {
+                struct InvoiceState { case draft, sent, paid }
+                Build succeeded
+                """
+            ),
+            (
+                "Xcode", "com.apple.dt.Xcode", "ClientApp.xcodeproj — InvoiceListViewModel.swift", false,
+                """
+                private func refreshInvoices() async {
+                let rows = try await client.fetchInvoices()
+                @MainActor func apply(_ rows: [Invoice])
+                """
+            ),
+            (
+                "Google Chrome", "com.google.Chrome", "github.com/northwind/clientapp — Pull Request #42", false,
+                """
+                github.com
+                Invoice rows recycle correctly on iOS 17
+                approved · reviewed 3 files
+                """
+            ),
+            (
+                "Terminal", "com.apple.Terminal", "clientapp — git commit", false,
+                """
+                git commit -m "fix: invoice row recycling on iOS 17"
+                [main 8f3c1d2] fix: invoice row recycling on iOS 17
+                3 files changed, 41 insertions(+)
+                """
+            ),
+            (
+                "Slack", "com.tinyspeck.slackmacgap", "#northwind — Slack", false,
+                """
+                invoice fix is merged — TestFlight build goes out this afternoon
+                """
+            ),
+            (
+                "Google Chrome", "com.google.Chrome", "dashboard.stripe.com — Invoices", false,
+                """
+                dashboard.stripe.com
+                Invoice inv_42X9 paid $1,240.00
+                """
+            ),
+            (
+                "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — PromptBuilder.swift", false,
+                """
+                let systemPrompt = PromptBuilder.systemPrompt(memoryContext: memoryContext)
+                evidence.deep_work_blocks
+                Build succeeded
+                """
+            ),
+            (
+                "Terminal", "com.apple.Terminal", "daypilot — swift build -c release", false,
+                """
+                swift build -c release --product DayPilot
+                Build of product 'DayPilot' complete! (19.8s)
+                """
+            ),
+            (
+                "Stickies", "com.apple.Stickies", "Stickies", true,
+                """
+                FlyMascots idea: npm publish checklist — login, publish, verify registry
+                remind Northwind: retainer invoice lands Friday
+                """
+            ),
+            (
+                "Google Chrome", "com.google.Chrome", "news.ycombinator.com — Show HN: A tool that writes your day brief", false,
+                """
+                news.ycombinator.com
+                Show HN: A tool that writes your day brief
+                312 points · 96 comments
+                """
+            ),
+            (
+                "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — FileManagerView.swift", false,
+                """
+                List(filteredFiles, selection: .constant(nil)) { file in
+                FileRowView(file: file, store: store)
+                """
+            ),
+            (
+                "Google Chrome", "com.google.Chrome", "app.revenuecat.com — DayPilot", false,
+                """
+                app.revenuecat.com
+                DayPilot · 42 trials · 9 conversions
+                """
+            ),
+            (
+                "Xcode", "com.apple.dt.Xcode", "DayPilot.xcodeproj — SessionSidebarView.swift", false,
+                """
+                Section("Sessions") {
+                .padding(.top, 8)
+                Build succeeded
+                """
+            )
+        ]
+
+        for (index, seed) in seeds.enumerated() {
+            let event = SessionEvent(
+                id: UUID().uuidString,
+                sessionId: sessionId,
+                timestamp: formatter.string(from: stamps[index]),
+                appName: seed.app,
+                bundleId: seed.bundle,
+                windowTitle: seed.window,
+                isEphemeral: seed.ephemeral,
+                extractedTextDelta: seed.delta
+            )
+            try? await sessionStore.recordEvent(event)
+        }
+        detail("events:", "\(await sessionStore.totalEventCount())")
+        detail("ephemeral:", "\(seeds.filter(\.ephemeral).count)")
+
+        do {
+            try await sandboxModel.attachForVerification(
+                sessionId: sessionId,
+                startedAt: now.addingTimeInterval(-TimeInterval(windowSeconds)),
+                eventCount: seeds.count
+            )
+        } catch {
+            print("  FAILED to attach the session: \(error.localizedDescription)")
+            return
+        }
+
+        // ---- 5. Stop: synthesis + archive --------------------------------------
+
+        banner("[4/5] Running stop() — synthesis + archive")
+
+        let completion = await sandboxModel.stopWorkday()
+        detail("session id:", completion.sessionId)
+        detail("duration:", "\(Int(completion.durationSeconds))s")
+        detail("synthesised:", completion.hasReport ? "yes" : "no — \(completion.synthesisFailureReason ?? "unknown")")
+        detail("rules harvested:", "\(completion.rulesHarvested.count)")
+        for rule in completion.rulesHarvested {
+            print("      + \(rule)")
+        }
+
+        banner("[5/5] The debrief")
+
+        if completion.reportMarkdown.isEmpty {
+            print("  (no report was generated)")
+            if let reason = completion.synthesisFailureReason {
+                print("  Reason: \(reason)")
+            }
+        } else {
+            print(completion.reportMarkdown)
+        }
+
+        if !completion.reportPath.isEmpty {
+            let exists = FileManager.default.fileExists(atPath: completion.reportPath)
+            let bytes = (try? FileManager.default.attributesOfItem(atPath: completion.reportPath)[.size] as? Int) ?? 0
+            print("\n    \(exists ? "✓" : "✗") report exists   \(completion.reportPath)")
+            print("    \(bytes > 0 ? "✓" : "✗") report size     \(bytes) bytes")
+        }
+
+        print("\n  Mock debrief complete. Sandbox kept for inspection:")
+        print("  \(sandbox.path)")
+    }
 
     // MARK: - Brief Preview
 

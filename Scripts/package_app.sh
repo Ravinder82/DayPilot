@@ -123,6 +123,11 @@ if [[ -f "$SKILL_CONFIG" ]]; then
     cp "$SKILL_CONFIG" "${STAGED_APP}/Contents/Resources/daypilot-tracker.config.json"
 fi
 
+# The Axo mascot model travels inside the app bundle.
+if [[ -f "Resources/axo.glb" ]]; then
+    cp "Resources/axo.glb" "${STAGED_APP}/Contents/Resources/axo.glb"
+fi
+
 # The sandboxing entitlement, when present. DayPilot samples other apps'
 # windows, so an App Sandbox must not be applied.
 if [[ -f "Resources/DayPilot.entitlements" ]]; then
