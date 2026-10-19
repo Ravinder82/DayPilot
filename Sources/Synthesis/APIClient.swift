@@ -341,8 +341,8 @@ struct APIClient {
 
     /// Performs one chat completion and returns the assistant's raw text.
     ///
-    /// `maxTokens` lets a caller with a known output shape (the ***REMOVED***
-    /// script) ask for more room than the default debrief budget.
+    /// `maxTokens` lets a caller with a known output shape ask for more room
+    /// than the default debrief budget.
     func complete(
         systemPrompt: String,
         userPayload: String,

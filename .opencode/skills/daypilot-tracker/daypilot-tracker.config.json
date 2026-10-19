@@ -150,11 +150,6 @@
     "delimiter_tags": {
       "start": "[VOICE_SCRIPT]",
       "end": "[/VOICE_SCRIPT]"
-    },
-    "***REMOVED***": {
-      "python_path": "~/Developer/DayPilot/.venv-tts/bin/python",
-      "renderer_path": "~/Developer/DayPilot/.opencode/skills/daypilot-***REMOVED***/pipeline/render_***REMOVED***.py",
-      "device": "cpu"
     }
   },
   "storage_paths": {

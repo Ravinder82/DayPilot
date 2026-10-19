@@ -15,9 +15,8 @@ labels, buttons, prompts, errors, or report content. In practice:
 - Nothing may rely on a fixed width that could clip its text at any window
   size the app supports.
 
-This was added after the ***REMOVED*** card's length picker, prompt field, and
-buttons ellipsized at normal window widths. Any future view is checked
-against it before it ships.
+This was added after controls in the debrief view ellipsized at normal
+window widths. Any future view is checked against it before it ships.
 
 ## Floating UI must never cover interactive content
 
