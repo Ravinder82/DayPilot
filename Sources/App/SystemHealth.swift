@@ -84,6 +84,7 @@ enum SystemHealth {
             accessibilityPermissionCheck(),
             briefHygieneCheck(),
             reportConstitutionCheck(),
+            ***REMOVED***ScriptCheck(),
         ]
     }
 
@@ -154,6 +155,59 @@ enum SystemHealth {
     /// comes back clean, the sample ships compliant (so it cannot drift from the
     /// standard it demonstrates), and the pass is idempotent (so a second
     /// producer applying it cannot alter a debrief that is already correct).
+    /// Drives a hostile provider answer through the ***REMOVED*** script parser and
+    /// checks the backstop: fences off, emoji and markdown stripped, one-host
+    /// runs merged, emotion tags rationed, and a blown length budget trimmed.
+    /// A speakable script is the last gate before a voice engine.
+    private static func ***REMOVED***ScriptCheck() -> SystemCheck {
+        let fenced = """
+        ```json
+        {"turns": [
+          {"who": "***REMOVED***", "text": "🧲 Eight hours — read the [spec](https://example.com) **twice** 😅 [laugh] [laugh]"},
+          {"who": "***REMOVED***", "text": "and shipped the build."},
+          {"who": "***REMOVED***", "text": "Then tomorrow opens with the live call. [chuckle]"}
+        ]}
+        ```
+        """
+
+        var parsesAndClears = false
+        var tagsRationed = false
+        if let script = try? ***REMOVED***Script.parse(response: fenced, length: .minute) {
+            let ***REMOVED*** = script.turns.first?.text ?? ""
+            parsesAndClears = script.turns.count == 2
+                && !***REMOVED***.contains("🧲") && !***REMOVED***.contains("😅")
+                && !***REMOVED***.contains("**") && !***REMOVED***.contains("https://example.com")
+                && ***REMOVED***.contains("read the spec twice")
+                && ***REMOVED***.contains("and shipped the build.")
+            tagsRationed = ***REMOVED***.lowercased().components(separatedBy: "[laugh]").count - 1 == 1
+        }
+
+        // A script far past its budget loses turns from the middle down to a
+        // conversation — the opening and closing turns survive; two is the floor.
+        let word = "word"
+        let heavy = ***REMOVED***Script.Turn(
+            who: .***REMOVED***,
+            text: Array(repeating: word, count: 100).joined(separator: " ")
+        )
+        let other = ***REMOVED***Script.Turn(
+            who: .***REMOVED***,
+            text: Array(repeating: word, count: 100).joined(separator: " ")
+        )
+        let bloated = ***REMOVED***Script(slug: "x", targetSeconds: 60, turns: [heavy, other, heavy, other])
+            .constrained()
+        let budgetTrimmed = bloated.turns.count == 2
+
+        let passed = parsesAndClears && tagsRationed && budgetTrimmed
+        return SystemCheck(
+            title: "***REMOVED*** script constitution",
+            detail: passed
+                ? "emoji, markdown and surplus tags stripped, one-host runs merged, bloated scripts trimmed before speech"
+                : "a script could reach the voice engine outside the constitution",
+            severity: passed ? .pass : .failure,
+            isRequired: true
+        )
+    }
+
     private static func reportConstitutionCheck() -> SystemCheck {
         let decorated = BriefSanitizer.enforceConstitution(
             "### 2. 🧲 Rescued Assets (The Harvester)\n\nNothing but evidence survives."

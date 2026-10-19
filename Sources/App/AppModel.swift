@@ -116,6 +116,8 @@ final class AppModel: ObservableObject {
     let settings: AppSettings
     let skillConfiguration: SkillConfiguration
     private let skillSource: SkillConfigurationLoader.Source
+    /// The two-host episode pipeline for the report that is open.
+    let ***REMOVED***: ***REMOVED***Controller
     private let injectedSessionStore: SessionStore?
     private let injectedUserMemory: UserMemoryStore?
 
@@ -136,6 +138,7 @@ final class AppModel: ObservableObject {
         let loaded = SkillConfigurationLoader.load()
         skillConfiguration = loaded.configuration
         skillSource = loaded.source
+        ***REMOVED*** = ***REMOVED***Controller(skill: loaded.configuration)
 
         // Injected stores exist so the integration test can seed a sandbox that
         // the debrief pipeline then reads from. Otherwise the test would write to
@@ -622,6 +625,9 @@ final class AppModel: ObservableObject {
         reportBody = text
         isLoadingReport = false
         currentReportPath = path
+        // The episode lives beside its report, so opening a report is also
+        // how its episode (or its absence) becomes the current one.
+        ***REMOVED***.attach(toReportAt: path)
     }
 
     /// Writes an edit a moment after typing pauses. Each keystroke cancels the

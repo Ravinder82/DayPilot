@@ -39,6 +39,27 @@ struct SkillConfiguration: Sendable, Equatable {
         let pitchMultiplier: Float
         let voiceScriptStartTag: String
         let voiceScriptEndTag: String
+        let ***REMOVED***: ***REMOVED***
+
+        /// Where and how a two-host episode is rendered, locally.
+        ///
+        /// ***REMOVED*** runs as a child process, so both paths are the app's
+        /// only view of the pipeline: a python interpreter with the render
+        /// dependencies installed, and the renderer script itself.
+        struct ***REMOVED***: Sendable, Equatable {
+            let pythonPath: String
+            let rendererPath: String
+            /// cpu beats mps on this machine; the daypilot-***REMOVED*** skill
+            /// carries the measured numbers.
+            let device: String
+
+            /// A default install's paths, overridable from the config file.
+            static let fallback = ***REMOVED***(
+                pythonPath: "~/Developer/DayPilot/.venv-tts/bin/python",
+                rendererPath: "~/Developer/DayPilot/.opencode/skills/daypilot-***REMOVED***/pipeline/render_***REMOVED***.py",
+                device: "cpu"
+            )
+        }
     }
 
     let apiProviders: APIProviders
@@ -119,7 +140,8 @@ struct SkillConfiguration: Sendable, Equatable {
             rate: 0.52,
             pitchMultiplier: 1.0,
             voiceScriptStartTag: "[VOICE_SCRIPT]",
-            voiceScriptEndTag: "[/VOICE_SCRIPT]"
+            voiceScriptEndTag: "[/VOICE_SCRIPT]",
+            ***REMOVED***: .fallback
         )
     )
 
@@ -250,6 +272,7 @@ extension SkillConfiguration.Audio: Decodable {
         case delimiterTags = "delimiter_tags"
         case start = "start"
         case end = "end"
+        case ***REMOVED***
     }
 
     init(from decoder: Decoder) throws {
@@ -269,11 +292,34 @@ extension SkillConfiguration.Audio: Decodable {
             voiceScriptStartTag = "[VOICE_SCRIPT]"
             voiceScriptEndTag = "[/VOICE_SCRIPT]"
         }
+
+        ***REMOVED*** = try container.decodeIfPresent(***REMOVED***.self, forKey: .***REMOVED***) ?? .fallback
     }
 
     private struct Delimiters: Decodable {
         let start: String
         let end: String
+    }
+}
+
+extension SkillConfiguration.Audio.***REMOVED***: Decodable {
+
+    private enum CodingKeys: String, CodingKey {
+        case pythonPath = "python_path"
+        case rendererPath = "renderer_path"
+        case device
+    }
+
+    /// Defensive like every other decode here: a truncated config falls back
+    /// per field rather than losing the ***REMOVED*** feature entirely.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pythonPath = try container.decodeIfPresent(String.self, forKey: .pythonPath)
+            ?? Self.fallback.pythonPath
+        rendererPath = try container.decodeIfPresent(String.self, forKey: .rendererPath)
+            ?? Self.fallback.rendererPath
+        device = try container.decodeIfPresent(String.self, forKey: .device)
+            ?? Self.fallback.device
     }
 }
 

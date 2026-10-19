@@ -340,8 +340,19 @@ struct APIClient {
     }
 
     /// Performs one chat completion and returns the assistant's raw text.
-    func complete(systemPrompt: String, userPayload: String) async throws -> String {
-        let request = try makeRequest(systemPrompt: systemPrompt, userPayload: userPayload)
+    ///
+    /// `maxTokens` lets a caller with a known output shape (the ***REMOVED***
+    /// script) ask for more room than the default debrief budget.
+    func complete(
+        systemPrompt: String,
+        userPayload: String,
+        maxTokens: Int = DayPilotConfiguration.synthesisMaxTokens
+    ) async throws -> String {
+        let request = try makeRequest(
+            systemPrompt: systemPrompt,
+            userPayload: userPayload,
+            maxTokens: maxTokens
+        )
         let data: Data
         let response: URLResponse
 

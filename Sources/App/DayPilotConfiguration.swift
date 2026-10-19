@@ -83,6 +83,12 @@ enum DayPilotConfiguration {
     /// probe proves the key works, so it must not cost real money.
     static let connectionProbeMaxTokens = 5
 
+    /// The ***REMOVED*** script is a small JSON document, but a provider that
+    /// reasons before answering spends tokens there too — under the debrief's
+    /// budget its answer ran out mid-JSON. The script gets its own, larger
+    /// ceiling.
+    static let ***REMOVED***ScriptMaxTokens = 8192
+
     // MARK: Policy (`app_filters`)
 
     /// Screen capture and OCR are suppressed outright while any of these owns

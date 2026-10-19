@@ -9,6 +9,7 @@ import SwiftUI
 struct ReportEditorView: View {
 
     @ObservedObject private var model: AppModel
+    @ObservedObject private var ***REMOVED***: ***REMOVED***Controller
     @State private var copiedAssetID: String?
     @State private var showSessionInfo = false
 
@@ -27,6 +28,7 @@ struct ReportEditorView: View {
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
+        _***REMOVED*** = ObservedObject(wrappedValue: model.***REMOVED***)
     }
 
     private var document: MarkdownDocument {
@@ -64,6 +66,21 @@ struct ReportEditorView: View {
         }
         .navigationTitle(model.detailTitle)
         .navigationSubtitle(model.detailSubtitle)
+        // The episode earns its control in the title bar once it exists;
+        // before that, the ***REMOVED*** section at the end of the brief is where
+        // one gets made.
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if ***REMOVED***.hasEpisode {
+                    Button {
+                        ***REMOVED***.togglePlayback()
+                    } label: {
+                        Image(systemName: ***REMOVED***.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    }
+                    .help(***REMOVED***.isPlaying ? "Pause the ***REMOVED*** episode" : "Play the ***REMOVED*** episode")
+                }
+            }
+        }
         // A fresh report opens with its record closed: provenance is there when
         // it is asked for, never the first thing on the page.
         .onChange(of: model.selectedSessionID) { _, _ in
@@ -103,6 +120,9 @@ struct ReportEditorView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(split.body.enumerated()), id: \.offset) { _, block in
                     blockView(block)
+                }
+                if !split.body.isEmpty {
+                    ***REMOVED***Section
                 }
                 if let record = split.record, !record.isEmpty {
                     sessionInfoDisclosure(record)
@@ -157,6 +177,144 @@ struct ReportEditorView: View {
         .padding(.top, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityHint("Shows the session record: provenance, timing and capture detail")
+    }
+
+    // MARK: - ***REMOVED***
+
+    /// The ***REMOVED*** section: create an episode of this debrief, or play the one
+    /// already made.
+    ///
+    /// It sits after the brief and before the record, because listening is
+    /// what you do with the day you have just read. Rendering is a child
+    /// process, so the card's job while it runs is honest progress and a
+    /// Cancel button — never a frozen window.
+    private var ***REMOVED***Section: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("***REMOVED***", systemImage: "waveform")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if ***REMOVED***.hasEpisode {
+                episodePlayer
+            }
+
+            switch ***REMOVED***.phase {
+            case .idle, .ready:
+                ***REMOVED***Controls
+            case .writingScript:
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Writing the script with your AI key…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel", role: .cancel) { ***REMOVED***.cancel() }
+                }
+            case .rendering:
+                HStack(spacing: 10) {
+                    ProgressView(value: ***REMOVED***.renderProgress)
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 220)
+                    Text(***REMOVED***.progressText.isEmpty ? "Rendering…" : ***REMOVED***.progressText)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Cancel", role: .cancel) { ***REMOVED***.cancel() }
+                }
+            case .failed(let message):
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .lineLimit(4)
+                    Button("Try again") {
+                        ***REMOVED***.createEpisode(reportMarkdown: model.reportBody)
+                    }
+                }
+            }
+
+            if let error = ***REMOVED***.lastRenderError, ***REMOVED***.phase == .ready {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(.red)
+                    .lineLimit(3)
+            }
+        }
+        .padding(14)
+        // Axo floats over the bottom-right corner of every debrief; the
+        // controls stop short of it so no button ever hides behind the mascot.
+        .padding(.trailing, 176)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+                )
+        )
+        .padding(.top, 20)
+    }
+
+    /// The player for an episode that already exists.
+    private var episodePlayer: some View {
+        HStack(spacing: 12) {
+            Button {
+                ***REMOVED***.togglePlayback()
+            } label: {
+                Image(systemName: ***REMOVED***.isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                    .font(.title2)
+            }
+            .buttonStyle(.plain)
+            .help(***REMOVED***.isPlaying ? "Pause" : "Play")
+
+            ProgressView(value: ***REMOVED***.episodeDuration > 0 ? ***REMOVED***.playbackElapsed / ***REMOVED***.episodeDuration : 0)
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 240)
+
+            Text("\(timeText(***REMOVED***.playbackElapsed)) / \(timeText(***REMOVED***.episodeDuration))")
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            if let script = ***REMOVED***.script {
+                Text("\(script.turns.count) turns · \(script.wordCount) words")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// Length, optional topic, and the button that starts an episode.
+    private var ***REMOVED***Controls: some View {
+        HStack(spacing: 10) {
+            Picker("Length", selection: $***REMOVED***.length) {
+                ForEach(***REMOVED***Script.Length.allCases) { length in
+                    Text(length.label).tag(length)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 240)
+
+            TextField("What should ***REMOVED*** and ***REMOVED*** discuss? (optional)", text: $***REMOVED***.promptText)
+                .textFieldStyle(.roundedBorder)
+
+            Button(***REMOVED***.hasEpisode ? "Make new episode" : "Create episode") {
+                ***REMOVED***.createEpisode(reportMarkdown: model.reportBody)
+            }
+            .disabled(!model.reportBodyIsEditable)
+            .help(model.reportBodyIsEditable
+                  ? "Writes a two-host script with your AI key, then renders it locally"
+                  : "A preview has no file, so an episode would have nowhere to live")
+        }
+    }
+
+    private func timeText(_ interval: TimeInterval) -> String {
+        let seconds = max(0, Int(interval.rounded()))
+        return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
 
     /// The plain words of an inline run, used to read heading text.
