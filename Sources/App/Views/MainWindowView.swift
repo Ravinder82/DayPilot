@@ -1,28 +1,35 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The main window with tabs: Library/Editor (split view) and Memory (file manager).
+/// The tabs in the main window's top bar.
+///
+/// Top-level rather than nested in `MainWindowView`: `AppModel` holds the
+/// selection so the menu bar's `Settings…` command can drive it from outside
+/// the view tree.
+enum MainTab: String, CaseIterable, Identifiable {
+    case library = "Library"
+    case memory = "Memory"
+    case settings = "Settings"
+
+    var id: String { rawValue }
+    var icon: String {
+        switch self {
+        case .library: return "sidebar.left"
+        case .memory: return "folder.fill.badge.gearshape"
+        case .settings: return "gearshape"
+        }
+    }
+}
+
+/// The main window with tabs: Library/Editor (split view), Memory (file manager)
+/// and Settings.
 struct MainWindowView: View {
 
     @ObservedObject private var model: AppModel
-    @State private var selectedTab: MainTab = .library
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
-    }
-
-    enum MainTab: String, CaseIterable, Identifiable {
-        case library = "Library"
-        case memory = "Memory"
-
-        var id: String { rawValue }
-        var icon: String {
-            switch self {
-            case .library: return "sidebar.left"
-            case .memory: return "folder.fill.badge.gearshape"
-            }
-        }
     }
 
     var body: some View {
@@ -31,13 +38,16 @@ struct MainWindowView: View {
 
             // Content
             Group {
-                if selectedTab == .library {
+                if model.mainTab == .library {
                     NavigationSplitView(columnVisibility: $columnVisibility) {
                         SessionSidebarView(model: model)
                             .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
                     } detail: {
                         ReportEditorView(model: model)
                     }
+                } else if model.mainTab == .settings {
+                    SettingsView(model: model)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let fileManager = model.fileManager {
                     FileManagerView(store: fileManager)
                 } else {
@@ -92,9 +102,9 @@ struct MainWindowView: View {
         }
     }
 
-    /// The Library/Memory switcher. `ViewThatFits` shows the labelled buttons
-    /// while there is room for them and falls back to icon-only buttons when
-    /// the window is too narrow — the standard SwiftUI way to keep a bar
+    /// The Library/Memory/Settings switcher. `ViewThatFits` shows the labelled
+    /// buttons while there is room for them and falls back to icon-only buttons
+    /// when the window is too narrow — the standard SwiftUI way to keep a bar
     /// adaptive without hardcoded widths.
     private var tabSwitcher: some View {
         HStack(spacing: 4) {
@@ -109,7 +119,7 @@ struct MainWindowView: View {
 
     private func tabButton(for tab: MainTab, showsTitle: Bool) -> some View {
         Button {
-            selectedTab = tab
+            model.mainTab = tab
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: tab.icon)
@@ -117,15 +127,15 @@ struct MainWindowView: View {
                     Text(tab.rawValue)
                 }
             }
-            .font(.system(.body, weight: selectedTab == tab ? .semibold : .regular))
-            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.secondary)
+            .font(.system(.body, weight: model.mainTab == tab ? .semibold : .regular))
+            .foregroundStyle(model.mainTab == tab ? Color.accentColor : Color.secondary)
             .lineLimit(1)
             .padding(.horizontal, showsTitle ? 16 : 10)
             .padding(.vertical, 6)
         }
         .buttonStyle(.plain)
         .background(
-            selectedTab == tab ?
+            model.mainTab == tab ?
             Color.accentColor.opacity(0.1) : Color.clear,
             in: RoundedRectangle(cornerRadius: 6)
         )

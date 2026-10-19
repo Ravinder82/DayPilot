@@ -1,12 +1,16 @@
 import SwiftUI
 import ScreenCaptureKit
 
-/// The Settings window (⌘,).
+/// Settings, as a tab of the main window (⌘,).
 ///
 /// Built to macOS Settings conventions: grouped forms, one primary action per
 /// section, destructive actions behind a confirmation, and every value that
 /// matters shown rather than hidden. Changes apply as they are made, so there is
-/// no pending state that closing the window could lose.
+/// no pending state that a switch away could lose.
+///
+/// It used to be a window of its own, which put it one app away from the work it
+/// configures. As a tab it fills whatever room the main window gives it, rather
+/// than the fixed 620×680 it was sized to when it had the screen to itself.
 struct SettingsView: View {
 
     @ObservedObject private var model: AppModel
@@ -29,7 +33,7 @@ struct SettingsView: View {
 
     var body: some View {
         providersTab
-            .frame(width: 620, height: 680)
+            .frame(minWidth: 620, maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Providers

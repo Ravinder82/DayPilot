@@ -73,6 +73,13 @@ final class AppModel: ObservableObject {
     /// The session selected in the sidebar. `nil` shows the newest debrief.
     @Published var selectedSessionID: String?
 
+    /// Which tab of the main window is on screen.
+    ///
+    /// In the model rather than the view because Settings has no window of its
+    /// own: the `Settings…` command lives in the menu bar, outside the view
+    /// tree, and it drives this to open the tab.
+    @Published var mainTab: MainTab = .library
+
     /// The Markdown on screen. Edits write through to the archived file a moment
     /// after typing stops, so nothing lives only in memory.
     @Published var reportBody = "" {
@@ -567,6 +574,37 @@ final class AppModel: ObservableObject {
             setReportBody(loaded.text, path: loaded.path)
         } else {
             setReportBody("", path: "")
+        }
+    }
+
+    /// Writes the sample Day Brief into the library and opens it.
+    ///
+    /// There is no report to read until a workday has been recorded end to end,
+    /// which makes the first launch a screen explaining a product rather than
+    /// the product. This puts a real brief in the folder — an ordinary file the
+    /// sidebar discovers, edits and deletes like any other — so the shape of a
+    /// Day Brief is one click away, and deleting it is how the welcome screen
+    /// comes back.
+    func loadSampleDayBrief() async {
+        let directory = ReportLibrary.baseDirectory()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let url = directory.appendingPathComponent(SampleDayBrief.fileName)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            try? Data(SampleDayBrief.markdown.utf8).write(to: url, options: .atomic)
+        }
+
+        // Select it first, so `refreshLibrary()` keeps the choice instead of
+        // picking whatever else the folder holds.
+        selectedSessionID = SampleDayBrief.sessionId
+        await refreshLibrary()
+
+        // `refreshLibrary()` only reads the folder once the session store has
+        // booted. Fall back to reading the file directly, so the button works
+        // in whatever state the app happens to be in.
+        if reportBody.isEmpty, let loaded = ReportLibrary.load(sessionId: SampleDayBrief.sessionId) {
+            selectedSessionID = SampleDayBrief.sessionId
+            setReportBody(loaded.text, path: loaded.path)
         }
     }
 

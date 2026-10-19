@@ -21,12 +21,12 @@ Press **Start**, forget it exists. Press **Stop & Debrief**, get an honest chief
 | **🦎 Axo, the mascot** | A SceneKit axolotl rendered from `Resources/axo.glb` • Greets you on a fresh install with a two-column welcome screen • Waves once on arrival (skipped when Reduce Motion is on) • Warmed up off the main thread at launch, so the stage is ready instantly — never a blank box |
 | **📝 Report Editor** | Rendered Markdown by default • Source edit mode (⌘⇧U) with debounced auto-save • Code blocks with copy button • Tables, quotes, lists • Export: Markdown, HTML, PDF, Plain Text |
 | **⏱ Session Console** | One play/pause toggle + Stop & Debrief in the top bar • A plain stopwatch counts the session upward, holds on pause, resets on stop • Pause never writes a brief — only Stop does |
-| **📋 Day Brief** | Chief-of-staff debrief written from a deterministic evidence pack • BLUF opener, dynamic sections, artifacts verified against the payload • Slop filter: no emoji, canned phrases, or fabricated paths ever reach the report |
+| **📋 Day Brief** | Chief-of-staff debrief written from a deterministic evidence pack • BLUF opener, dynamic sections, artifacts verified against the payload • Slop filter: no emoji, canned phrases, or fabricated paths ever reach the report • An empty library offers a sample Day Brief to read first |
 | **🧠 Memory (File Manager)** | Security-scoped bookmarks — no Full Disk Access needed • Recursive indexing with SHA-256 dedup • Search by name/path/summary • Filter by folder & file type (code, images, PDF, video…) • Clean missing files & duplicates • Per-file context menu |
 | **🤖 AI Providers** | Live `/models` fetch from any OpenAI-compatible endpoint • Free/Paid/Unpriced badges • Curated fallbacks for Google, OpenRouter, Groq, NVIDIA, DeepSeek • Custom endpoints (add/edit/remove) • Test Connection before saving key |
 | **🔐 Keychain Storage** | API keys in macOS Keychain (`service: com.daypilot.apikeys`) • Test Connection uses typed key before saving • Remove individual or all keys |
 | **💾 Persistence** | SQLite (`~/Library/Application Support/DayPilot/DayPilot.sqlite`) • Reports as Markdown (`~/…/Reports/YYYY-MM-DD_<sessionId>.md`) • User memory profile (`user_memory.json`) • Model catalogue cache (`model_catalog.json`) |
-| **🪟 Native macOS** | Windowed app — Dock icon, Launchpad, Spotlight, Cmd+Tab • Settings window (⌘,) • Full dark/light appearance • Signed with Apple Development identity (TCC grants survive rebuilds) |
+| **🪟 Native macOS** | Windowed app — Dock icon, Launchpad, Spotlight, Cmd+Tab • Settings as a tab of the main window (⌘,) • Full dark/light appearance • Signed with Apple Development identity (TCC grants survive rebuilds) |
 
 ---
 
@@ -53,14 +53,14 @@ DayPilotApp (@main)
 │   ├── BriefSanitizer        # Slop filter, artifact verification, title canonicalisation
 │   └── ReportArchiver        # Markdown + provenance + rules of thumb
 └── UI (SwiftUI)
-    ├── MainWindowView        # Top bar: Library | Memory + focus console
+    ├── MainWindowView        # Top bar: Library | Memory | Settings + focus console
     │   ├── SessionSidebarView
     │   ├── ReportEditorView   # Editor + the fresh-install greeting
-    │   └── FileManagerView
-    ├── Views/3D
-    │   ├── MascotPipeline     # Off-main warm-up: parse once, pool stages, lite rig
-    │   └── AxoMascot          # Scene builders + the SCNView representable
-    └── SettingsView          # Provider, model, permissions, developer tools
+    │   ├── FileManagerView
+    │   └── SettingsView       # Provider, model, permissions, developer tools
+    └── Views/3D
+        ├── MascotPipeline     # Off-main warm-up: parse once, pool stages, lite rig
+        └── AxoMascot          # Scene builders + the SCNView representable
 ```
 
 ---

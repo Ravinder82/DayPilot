@@ -71,6 +71,20 @@ struct DayPilotApp: App {
             // Window menus get their polish.
             CommandGroup(replacing: .newItem) { }
 
+            // Settings is a tab of the main window, so ⌘, selects it rather than
+            // opening a second window. The tab lives in the model: if every
+            // window is closed the choice is still made, and the next window to
+            // open lands on it.
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    model.mainTab = .settings
+                    NSApp.activate(ignoringOtherApps: true)
+                    NSApp.windows.first { $0.isVisible && $0.canBecomeKey }?
+                        .makeKeyAndOrderFront(nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             CommandMenu("Session") {
                 Button("Start Workday") {
                     Task { await model.startWorkday() }
@@ -100,10 +114,6 @@ struct DayPilotApp: App {
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(model.currentReportPath.isEmpty)
             }
-        }
-
-        Settings {
-            SettingsView(model: model)
         }
     }
 }

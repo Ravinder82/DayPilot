@@ -233,12 +233,23 @@ struct ReportEditorView: View {
                 .frame(maxWidth: 360)
 
             if !model.hasAnyProviderKey {
-                SettingsLink {
+                Button {
+                    model.mainTab = .settings
+                } label: {
                     Label("Connect an AI Provider…", systemImage: "key.fill")
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 6)
+                .help("Open Settings")
             }
+
+            Button {
+                Task { await model.loadSampleDayBrief() }
+            } label: {
+                Label("Load a sample Day Brief", systemImage: "doc.text")
+            }
+            .buttonStyle(.bordered)
+            .help("Write a sample Day Brief into the library, so there is a report to read")
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -313,13 +324,27 @@ struct ReportEditorView: View {
                     .frame(maxWidth: 400, alignment: .leading)
 
                 if !model.hasAnyProviderKey {
-                    SettingsLink {
+                    Button {
+                        model.mainTab = .settings
+                    } label: {
                         Label("Connect an AI Provider…", systemImage: "key.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .padding(.top, 22)
+                    .help("Open Settings")
                 }
+
+                Button {
+                    Task { await model.loadSampleDayBrief() }
+                } label: {
+                    Label("Load a sample Day Brief", systemImage: "doc.text")
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .padding(.top, 16)
+                .help("Write a sample Day Brief into the library, so there is a report to read")
             }
             .frame(maxWidth: 440, alignment: .leading)
 
