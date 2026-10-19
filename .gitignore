@@ -17,3 +17,7 @@ DayPilot.app/
 # Editor
 .idea/
 .vscode/
+
+# Local TTS environment (***REMOVED*** pipeline)
+.venv-tts/
+__pycache__/
