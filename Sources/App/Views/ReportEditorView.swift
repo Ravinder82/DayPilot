@@ -10,6 +10,20 @@ struct ReportEditorView: View {
 
     @ObservedObject private var model: AppModel
     @State private var copiedAssetID: String?
+    @State private var showSessionInfo = false
+
+    /// Headings that begin the session record rather than the brief.
+    ///
+    /// The app appends provenance to every archived file so a report can be
+    /// audited later, and older reports also trail the voice script and the
+    /// rules that were harvested. That is bookkeeping, not the debrief, so it
+    /// opens behind one control instead of sitting under the last section.
+    private static let sessionRecordHeadings = [
+        "provenance",
+        "voice script",
+        "rules of thumb",
+        "added to your working profile",
+    ]
 
     init(model: AppModel) {
         _model = ObservedObject(wrappedValue: model)
@@ -50,6 +64,11 @@ struct ReportEditorView: View {
         }
         .navigationTitle(model.detailTitle)
         .navigationSubtitle(model.detailSubtitle)
+        // A fresh report opens with its record closed: provenance is there when
+        // it is asked for, never the first thing on the page.
+        .onChange(of: model.selectedSessionID) { _, _ in
+            showSessionInfo = false
+        }
         .alert("The report could not be saved", isPresented: writeErrorIsPresented) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -79,16 +98,76 @@ struct ReportEditorView: View {
     // MARK: - Rendered
 
     private var renderedReport: some View {
-        ScrollView {
+        let split = sessionRecordSplit
+        return ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(document.blocks.enumerated()), id: \.offset) { _, block in
+                ForEach(Array(split.body.enumerated()), id: \.offset) { _, block in
                     blockView(block)
+                }
+                if let record = split.record, !record.isEmpty {
+                    sessionInfoDisclosure(record)
                 }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 22)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// The brief, and the session record that trails it.
+    ///
+    /// Everything from the first record heading to the end of the document is
+    /// split off. Reports written before the app added provenance still get the
+    /// same treatment, and a brief with no record at all renders whole.
+    private var sessionRecordSplit: (body: [MarkdownDocument.Block], record: [MarkdownDocument.Block]?) {
+        let blocks = document.blocks
+        guard let cut = blocks.firstIndex(where: isSessionRecordHeading) else {
+            return (blocks, nil)
+        }
+        return (Array(blocks[..<cut]), Array(blocks[cut...]))
+    }
+
+    private func isSessionRecordHeading(_ block: MarkdownDocument.Block) -> Bool {
+        guard case .heading(_, let inline) = block else { return false }
+        let heading = plainText(inline).lowercased()
+        return Self.sessionRecordHeadings.contains { heading.contains($0) }
+    }
+
+    /// The record behind one click. Collapsed, it costs a single row; opened,
+    /// it is the full provenance list rendered like any other block.
+    private func sessionInfoDisclosure(_ blocks: [MarkdownDocument.Block]) -> some View {
+        DisclosureGroup(isExpanded: $showSessionInfo) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
+                    blockView(block)
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Label("Session Info", systemImage: "info.circle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHint("Shows the session record: provenance, timing and capture detail")
+    }
+
+    /// The plain words of an inline run, used to read heading text.
+    private func plainText(_ inline: [MarkdownDocument.Inline]) -> String {
+        inline.map { run in
+            switch run {
+            case .text(let value):
+                return value
+            case .bold(let children), .italic(let children):
+                return plainText(children)
+            case .code(let value):
+                return value
+            case .link(let label, _):
+                return label
+            }
+        }
+        .joined()
     }
 
     /// Returns `AnyView` because a block can contain blocks. SwiftUI cannot infer

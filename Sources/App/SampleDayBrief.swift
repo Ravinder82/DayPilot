@@ -8,6 +8,13 @@ import Foundation
 /// listed in the sidebar, editable, and deletable like any other, which is also
 /// how the welcome screen comes back.
 ///
+/// It is written to the standard the app asks for: the copy an expert commercial
+/// editor would sign off on. Sentence-case sections, no icons, no stage numbers
+/// or nicknames, every claim carrying a number or a name, the brief itself well
+/// under 450 words — and the session record kept under `### Provenance`, where
+/// the report view hides it behind **Session Info** rather than putting it on
+/// the page.
+///
 /// Deliberately separate from `PreviewFixtures`, whose values never reach disk
 /// because they exist only to draw windows offline.
 enum SampleDayBrief {
@@ -21,33 +28,41 @@ enum SampleDayBrief {
     static var fileName: String { "2026-10-12_\(sessionId).md" }
 
     static let markdown = """
-    # ⚡ Indie Velocity Debrief — 2026-10-12
+    # Day Brief — Monday, 12 October 2026
 
-    ### 1. 🚀 Shipped Velocity (The Needle Movers)
-    - Landed the report library refactor — `ReportLibrary` now reads every archived `.md` from the folder itself, so a debrief written before the database knew about it still opens.
-    - The top bar became a tab switcher — Library, Memory and Settings — so the whole app lives behind one window.
+    ## The day in brief
 
-    ### 2. 🧲 Rescued Assets (The Harvester)
-    - A line that kept bouncing between tabs all morning: *"render interfaces through the same host the user runs — the blank window only reproduced when views were hosted the way the user sees them."*
-    - Scratch note, now a rule: bound the width instead of asking a text view for its ideal height.
+    Eight hours and twenty eight minutes on the report library and the window tabs, both landed, build clean throughout. The provider layer was rewritten without one request against a live key, so every clean build since is unverified against the real API.
 
-    ### 3. ⏱️ The Reality Mirror
-    - **Core Deep Work:** 3h 45m in Xcode.
-    - **Productive Procrastination:** 18m of passive Safari tabs that moved nothing.
-    - **Friction & Strategic Lesson:** The provider layer was rewritten without a single run against a live key. Every clean build since is unverified against the real API. One short session against the live provider beats another hour of reading the code.
+    ## Where the time went
 
-    ### 4. 🎯 Tomorrow's Zero-Friction Launchpad
-    - **Target File:** `DayPilot/Sources/Synthesis/APIClient.swift`
-    - **Terminal Command:** `make selftest`
-    - **First Micro-Action:** Add a key in Settings, then run one short session against the live provider before touching the catalogue again.
+    - Xcode — 3h 45m
+    - Terminal — 22m
+    - Safari — 18m of passive tabs, nothing moved
 
-    ---
+    ## What moved
 
-    ### Recovered fragment
+    - `ReportLibrary` now reads every archived `.md` from the folder itself, so a debrief written before the database knew about it still opens.
+    - The top bar became a three tab switcher — Library, Memory, Settings — behind one window.
+    - Reports render through the same host the app runs, which is what reproduced the blank window.
+
+    ## Open threads
+
+    - `APIClient.swift` resolves every provider through one path, and no request has gone through it since the rewrite.
+
+    ## Recovered fragments
 
     ```text
     grep -rn "TODO" Sources/ | head -20
     ```
+
+    ## Worth remembering
+
+    - A view only fails where the user sees it: hosting the report the way the app hosts it reproduced the blank window on the first try.
+
+    ## Tomorrow, first move
+
+    Add a provider key in Settings, then run one short session against the live provider before touching the catalogue again.
 
     ### Provenance
 
@@ -55,17 +70,12 @@ enum SampleDayBrief {
     - **Duration:** 8h 28m
     - **Events captured:** 142 (9 ephemeral)
     - **Frames suppressed by the privacy shield:** 0
-    - **Synthesised with:** Sample content · written so a Day Brief is there to read before a real session has been recorded
+    - **Synthesised with:** Sample content, written so a Day Brief is there to read before a real session has been recorded
     - **Generated:** 2026-10-12T17:40:31Z
 
-    ### Voice script (spoken)
-
-    > A sample brief, kept in the same shape as a real one so the layout matches what a workday produces.
-
-    The day opened in Xcode and stayed there: three hours and forty five minutes on the report library and the main window tabs. Twenty two minutes in the terminal, eighteen minutes of passive browsing in Safari that moved nothing forward. The lesson is the one worth keeping — rewrite the provider layer, then prove it against a live key before calling it done. Tomorrow, start by adding a key in Settings and running one short session.
-
-    ### Rules of thumb added to the user profile
+    ### Added to your working profile
 
     - One session against a live API is worth more than another hour of reading its code.
+    - Bind the width instead of asking a text view for its ideal height.
     """
 }

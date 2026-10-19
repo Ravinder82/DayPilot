@@ -29,6 +29,7 @@ enum BriefSanitizer {
         text = normalizeTypography(text)
         text = scrubBannedSentences(in: text, removed: &removed)
         text = tameBold(text)
+        text = stripHeadingDecoration(text)
 
         var sections = splitSections(text)
         sections = dropLegacySections(sections, removed: &removed)
@@ -100,6 +101,46 @@ enum BriefSanitizer {
         default:
             return false
         }
+    }
+
+    // MARK: - Heading decoration (the editor's pass)
+
+    /// Headings are structure, not decoration.
+    ///
+    /// A template — or a model imitating one — leaves `### 2. 🧲 Rescued Assets
+    /// (The Harvester)` behind: a stage number, an icon, a nickname. None of it
+    /// survives a commercial edit, so it is removed here whatever the prompt
+    /// asked for and the heading ships as `### Rescued Assets`. Lines inside a
+    /// code fence are content, never headings, and are left untouched.
+    private static func stripHeadingDecoration(_ text: String) -> String {
+        var inFence = false
+        var lines: [String] = []
+
+        for rawLine in text.components(separatedBy: .newlines) {
+            let trimmedStart = rawLine.trimmingCharacters(in: .whitespaces)
+            if trimmedStart.hasPrefix("```") { inFence.toggle() }
+            guard !inFence, trimmedStart.hasPrefix("#") else {
+                lines.append(rawLine)
+                continue
+            }
+
+            let hashes = rawLine.prefix(while: { $0 == "#" })
+            var body = String(rawLine.dropFirst(hashes.count))
+            body = String(body.drop(while: { $0 == " " }))
+
+            // Stage numbering: "1. " or "2) ".
+            if let number = body.range(of: #"^\d{1,2}[.)]\s+"#, options: .regularExpression) {
+                body = String(body[number.upperBound...])
+            }
+            // The nickname in parentheses that names the stage.
+            if let nickname = body.range(of: #"\s*\([^()]*\)\s*$"#, options: .regularExpression) {
+                body = String(body[..<nickname.lowerBound])
+            }
+
+            body = body.trimmingCharacters(in: .whitespaces)
+            lines.append(body.isEmpty ? String(hashes) : "\(hashes) \(body)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - Slop substitution (soft)

@@ -116,14 +116,7 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            List(selection: modelSelection) {
-                ForEach(pickerOptions) { option in
-                    ModelRowView(option: option)
-                        .tag(option.id as String?)
-                }
-            }
-            .listStyle(.bordered(alternatesRowBackgrounds: true))
-            .frame(minHeight: 180, maxHeight: 350)
+            modelList
 
             TextField(
                 "Model ID",
@@ -156,6 +149,64 @@ struct SettingsView: View {
         } footer: {
             Text("Free and paid models are labelled where the provider publishes prices. Models without a published price appear under All.")
         }
+    }
+
+    /// The model catalogue, in its own scroller.
+    ///
+    /// A `List` nested in a grouped `Form` is flattened into the form's own
+    /// scroll view on macOS, so it clips instead of scrolling — with a full
+    /// catalogue the rows simply ran off the bottom of their frame. A
+    /// `ScrollView` keeps its own scroller however deep it is nested, so every
+    /// model is reachable without scrolling the whole pane first.
+    private var modelList: some View {
+        ScrollView {
+            if pickerOptions.isEmpty {
+                Text(emptyModelListMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+            } else {
+                LazyVStack(spacing: 0) {
+                    ForEach(Array(pickerOptions.enumerated()), id: \.element.id) { index, option in
+                        modelRow(option, index: index)
+                    }
+                }
+            }
+        }
+        .frame(minHeight: 180, maxHeight: 350)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .controlBackgroundColor)))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color(nsColor: .separatorColor), lineWidth: 1)
+        )
+        .accessibilityLabel("Available models")
+        .accessibilityHint("Scrolls. Choose a row to select that model.")
+    }
+
+    private func modelRow(_ option: AIModel, index: Int) -> some View {
+        let isSelected = option.id == selectedModelID
+        return ModelRowView(option: option)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isSelected
+                    ? Color.accentColor.opacity(0.18)
+                    : (index.isMultiple(of: 2) ? Color.clear : Color.primary.opacity(0.04))
+            )
+            .overlay(alignment: .bottom) {
+                if index < pickerOptions.count - 1 {
+                    Divider().padding(.leading, 10)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { modelIDBinding.wrappedValue = option.id }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : [.isButton])
+            .accessibilityAction { modelIDBinding.wrappedValue = option.id }
     }
 
     private var credentialsSection: some View {
@@ -471,17 +522,6 @@ struct SettingsView: View {
             set: { newValue in
                 model.selectProvider(newValue)
                 loadSelection()
-            }
-        )
-    }
-
-    /// The list's selection. Clearing it stores "no model", which the request
-    /// path reports rather than sending an empty model name.
-    private var modelSelection: Binding<String?> {
-        Binding(
-            get: { selectedModelID.isEmpty ? nil : selectedModelID },
-            set: { newValue in
-                settings.select(model: newValue ?? "", forProvider: activeProvider.id)
             }
         )
     }

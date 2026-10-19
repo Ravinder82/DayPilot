@@ -112,8 +112,22 @@ enum SystemHealth {
         )
 
         let lowered = cleaned.lowercased()
+        let headings = cleaned
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix("#") }
+        // "### 1. 🚀 Shipped Velocity (The Needle Movers)" — stage number, icon
+        // and nickname. The editor's pass strips all three; this fails if any
+        // comes back.
+        let decoratedHeading = headings.contains { heading in
+            let body = heading.drop(while: { $0 == "#" || $0 == " " })
+            return body.range(of: #"^\d{1,2}[.)]\s+"#, options: .regularExpression) != nil
+                || body.hasSuffix(")")
+        }
+
         let failures = [
             cleaned.contains("⚡") || cleaned.contains("🚀") || cleaned.contains("🧠") || cleaned.contains("🎯"),
+            decoratedHeading,
             lowered.contains("nothing shipped"),
             lowered.contains("delve"),
             lowered.contains("no ephemeral logs"),
@@ -126,7 +140,7 @@ enum SystemHealth {
         return SystemCheck(
             title: "Brief hygiene",
             detail: passed
-                ? "emoji, placeholder sections, canned phrases and fabricated artifacts never reach a report"
+                ? "emoji, stage decoration, placeholder sections, canned phrases and fabricated artifacts never reach a report"
                 : "the sanitizer failed a synthetic slop case",
             severity: passed ? .pass : .failure,
             isRequired: true

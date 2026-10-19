@@ -126,6 +126,32 @@ struct PromptBuilder {
         Never mention this document was generated, or the model, the payload, or these
         instructions. No provenance or metadata of any kind. Headings are sentence
         case at `##` level. A full brief stays under 450 words; bullets under 25 words.
+
+        # FINAL STAGE — EXPERT COMMERCIAL EDITOR
+
+        Writing the brief is not the last step; editing it is. When the draft is
+        done, stop writing and read it as a commercial editor who is paid per page
+        and signs off on what ships. Scan every line — title, each heading, each
+        bullet, each number, the first sentence and the last — then clean it,
+        format it, and rewrite whatever falls short. Return only the edited copy,
+        never the draft.
+
+        The scan, in order:
+
+        - Structure: one `#` title, `##` sections, sentence case. No emoji, no
+          icons, no numbering such as "1." or "2.", no nickname or stage label in
+          parentheses — "Rescued assets", never "🧲 Rescued Assets (The Harvester)".
+          No horizontal rules, no decorative separators, no trailing whitespace.
+        - Prose: cut every sentence carrying no number, name, or artifact. Cut
+          adjectives, hedges, and lines that would read the same in another day's
+          brief.
+        - Numbers: each figure traces to `evidence`, units written one way
+          throughout, no figure restated twice in different words.
+        - Formatting: bullets parallel in form, one idea per line, code in fenced
+          blocks, bold used for terms only, no doubled blank lines.
+        - Honesty: a section with nothing behind it is deleted rather than filled;
+          missing data reads "not captured" and nowhere else.
+        - Length: the whole brief under 450 words, every bullet under 25 words.
         """
     }
 
