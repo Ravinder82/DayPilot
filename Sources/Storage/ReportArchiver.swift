@@ -209,6 +209,10 @@ final class ReportArchiver {
 
     /// The on-disk report: the brief first, then a short provenance block for
     /// auditing.
+    ///
+    /// The whole string passes through `BriefSanitizer.enforceConstitution`
+    /// before it is returned, so the editor's rules hold for every debrief the
+    /// app writes.
     private static func render(
         outcome: SynthesisOutcome,
         context: SessionCompletionContext
@@ -218,8 +222,6 @@ final class ReportArchiver {
 
         var lines: [String] = []
         lines.append("\(outcome.reportMarkdown)")
-        lines.append("")
-        lines.append("---")
         lines.append("")
         lines.append("### Provenance")
         lines.append("")
@@ -249,7 +251,12 @@ final class ReportArchiver {
         }
 
         lines.append("")
-        return lines.joined(separator: "\n")
+
+        // The constitution, applied to the finished document. Synthesized,
+        // probe, failed, or produced by a feature that does not exist yet:
+        // every debrief becomes a file here and nowhere else, so this is the
+        // line that makes the rules permanent.
+        return BriefSanitizer.enforceConstitution(lines.joined(separator: "\n"))
     }
 
     // MARK: - Paths

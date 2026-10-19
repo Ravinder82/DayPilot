@@ -83,6 +83,7 @@ enum SystemHealth {
             await screenCapturePermissionCheck(),
             accessibilityPermissionCheck(),
             briefHygieneCheck(),
+            reportConstitutionCheck(),
         ]
     }
 
@@ -142,6 +143,39 @@ enum SystemHealth {
             detail: passed
                 ? "emoji, stage decoration, placeholder sections, canned phrases and fabricated artifacts never reach a report"
                 : "the sanitizer failed a synthetic slop case",
+            severity: passed ? .pass : .failure,
+            isRequired: true
+        )
+    }
+
+    /// The constitution as a test, run over the method `ReportArchiver` uses.
+    ///
+    /// Three things must hold for the rules to be permanent: a decorated heading
+    /// comes back clean, the sample ships compliant (so it cannot drift from the
+    /// standard it demonstrates), and the pass is idempotent (so a second
+    /// producer applying it cannot alter a debrief that is already correct).
+    private static func reportConstitutionCheck() -> SystemCheck {
+        let decorated = BriefSanitizer.enforceConstitution(
+            "### 2. 🧲 Rescued Assets (The Harvester)\n\nNothing but evidence survives."
+        )
+        let decorationCleared =
+            decorated.contains("### Rescued Assets")
+            && !decorated.contains("🧲")
+            && !decorated.contains("Harvester")
+
+        let sample = SampleDayBrief.markdown
+        let enforced = BriefSanitizer.enforceConstitution(sample)
+        let sampleIsCompliant =
+            enforced.trimmingCharacters(in: .newlines) == sample.trimmingCharacters(in: .newlines)
+
+        let idempotent = BriefSanitizer.enforceConstitution(enforced) == enforced
+
+        let passed = decorationCleared && sampleIsCompliant && idempotent
+        return SystemCheck(
+            title: "Report constitution",
+            detail: passed
+                ? "every archived debrief passes the commercial-editor rules; the sample passes through unchanged"
+                : "an archived debrief could ship outside the constitution",
             severity: passed ? .pass : .failure,
             isRequired: true
         )

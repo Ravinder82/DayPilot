@@ -121,8 +121,14 @@ struct ReportEditorView: View {
     /// same treatment, and a brief with no record at all renders whole.
     private var sessionRecordSplit: (body: [MarkdownDocument.Block], record: [MarkdownDocument.Block]?) {
         let blocks = document.blocks
-        guard let cut = blocks.firstIndex(where: isSessionRecordHeading) else {
+        guard var cut = blocks.firstIndex(where: isSessionRecordHeading) else {
             return (blocks, nil)
+        }
+        // Reports written before the archive dropped its separator still carry
+        // a rule above the provenance; it belongs with the record, so it goes
+        // behind the disclosure instead of sitting on the page.
+        if cut > 0, case .divider = blocks[cut - 1] {
+            cut -= 1
         }
         return (Array(blocks[..<cut]), Array(blocks[cut...]))
     }

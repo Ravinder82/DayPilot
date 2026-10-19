@@ -46,6 +46,19 @@ enum BriefSanitizer {
         return text
     }
 
+    /// The constitution, as one pass that needs no evidence pack.
+    ///
+    /// Everything the editor's stage demands of the page itself: icons and
+    /// emoji are stripped wherever they appear, headings lose the stage number
+    /// and the nickname in parentheses, whitespace is tidied. `sanitize` runs
+    /// these rules as part of the model-output pipeline; `ReportArchiver` runs
+    /// this method over whatever it is about to write, so a debrief produced by
+    /// a feature that does not exist yet still ships compliant — no archive
+    /// path skips it.
+    static func enforceConstitution(_ text: String) -> String {
+        tidyWhitespace(stripHeadingDecoration(normalizeTypography(text)))
+    }
+
     // MARK: - Voice script block (retired feature)
 
     private static func stripVoiceBlocks(_ text: String) -> String {
