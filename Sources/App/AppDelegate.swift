@@ -16,6 +16,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// finish a live session first. Weak, because the App owns the model.
     weak var model: AppModel?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // The snapshot harness must pick its appearance before SwiftUI builds
+        // its window: `colorScheme` and every dynamic `Color(nsColor:)` are
+        // resolved at window-build time and do not follow a later change.
+        LaunchHarness.applyRequestedAppearanceEarly()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Self.logger.notice("DayPilot launched as a windowed application")
         LaunchHarness.scheduleWindowSnapshotIfRequested()

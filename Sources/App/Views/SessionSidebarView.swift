@@ -104,9 +104,12 @@ private struct SessionRow: View {
     var body: some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
+                // Wraps instead of ellipsizing — project condition: no text
+                // element may ever be cut off.
                 Text(session.displayTitle)
                     .font(.headline)
-                    .lineLimit(1)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 10) {
                     Label("\(session.eventCount)", systemImage: "rectangle.stack")
@@ -119,6 +122,8 @@ private struct SessionRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 4)

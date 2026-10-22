@@ -58,6 +58,7 @@ struct DayPilotApp: App {
                     // is the earliest safe moment: `@StateObject` storage only
                     // exists while a view that owns it is alive.
                     appDelegate.model = model
+                    LaunchHarness.snapshotModel = model
                     model.activateOnce()
                     Task { await model.refreshLibrary() }
                     // Check if onboarding should show

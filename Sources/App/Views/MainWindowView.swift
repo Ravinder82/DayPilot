@@ -129,7 +129,6 @@ struct MainWindowView: View {
             }
             .font(.system(.body, weight: model.mainTab == tab ? .semibold : .regular))
             .foregroundStyle(model.mainTab == tab ? Color.accentColor : Color.secondary)
-            .lineLimit(1)
             .padding(.horizontal, showsTitle ? 16 : 10)
             .padding(.vertical, 6)
         }

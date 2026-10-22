@@ -25,95 +25,19 @@ struct FileManagerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Toolbar. The fixed height is what keeps this row pinned to the
-            // top: without it, the Divider inside the HStack reports vertical
-            // flexibility, the header becomes a greedy child, and it splits
-            // the window height with the empty state below (the old layout
-            // bug where every control floated mid-air).
-            HStack(spacing: 10) {
-                Button {
-                    showingFolderPicker = true
-                } label: {
-                    Label("Add Folder", systemImage: "plus")
-                }
-                .help("Add a folder to AI memory")
-
-                Divider()
-                    .frame(height: 18)
-
-                // Search
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search files...", text: $searchText)
-                        .textFieldStyle(.plain)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
-                .frame(width: 240)
-
-                if store.isIndexing {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Indexing…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 12)
-
-                // Filter by folder
-                if !store.bookmarks.isEmpty {
-                    Menu {
-                        ForEach(store.bookmarks) { bookmark in
-                            Toggle(bookmark.name, isOn: Binding(
-                                get: { selectedFolderIDs.contains(bookmark.id) },
-                                set: { isOn in
-                                    if isOn { selectedFolderIDs.insert(bookmark.id) }
-                                    else { selectedFolderIDs.remove(bookmark.id) }
-                                }
-                            ))
-                        }
-                        if !selectedFolderIDs.isEmpty {
-                            Divider()
-                            Button("Clear Folder Filter") { selectedFolderIDs.removeAll() }
-                        }
-                    } label: {
-                        Label(selectedFolderIDs.isEmpty ? "All Folders" : "\(selectedFolderIDs.count) Folders", systemImage: "folder")
-                    }
-                    .fixedSize()
-                }
-
-                // Sort order and direction in one menu, so the labels can
-                // never collide the way the old Picker + arrow pair did.
-                Menu {
-                    ForEach(SortOrder.allCases) { order in
-                        Button {
-                            sortOrder = order
-                        } label: {
-                            if sortOrder == order {
-                                Label(order.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(order.rawValue)
-                            }
-                        }
-                    }
-                    Divider()
-                    Button {
-                        sortAscending.toggle()
-                    } label: {
-                        Label(sortAscending ? "Ascending" : "Descending",
-                              systemImage: sortAscending ? "arrow.up" : "arrow.down")
-                    }
-                } label: {
-                    Label("\(sortOrder.rawValue) \(sortAscending ? "↑" : "↓")", systemImage: "arrow.up.arrow.down")
-                }
-                .fixedSize()
-            }
-            .padding(.horizontal, 16)
-            .frame(height: 44)
-            .background(.bar)
+            // Toolbar. Stays one row while it fits; when the window narrows
+            // it wraps to two — controls on line 1, the folder/sort menus
+            // right-aligned on line 2 — instead of compressing controls.
+            // fixedSize(vertical) replaces the old fixed 44pt height: the
+            // header takes its intrinsic height (44 single-row, taller when
+            // wrapped) but never reports vertical flexibility, so the empty
+            // state below never splits the window height with it.
+            toolbarContent
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .frame(minHeight: 44)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(.bar)
 
             Divider()
 
@@ -125,7 +49,8 @@ struct FileManagerView: View {
                     Text(error)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Retry") { store.reindexAll() }
                         .font(.caption)
@@ -164,6 +89,114 @@ struct FileManagerView: View {
         }
         .sheet(isPresented: $showingFolderPicker) {
             FolderPickerView(store: store)
+        }
+    }
+
+    /// The toolbar's two layouts: preferred single row, then the wrapped
+    /// two-row fallback for narrow windows.
+    private var toolbarContent: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                toolbarLeftControls
+                Spacer(minLength: 12)
+                toolbarMenus
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                toolbarLeftControls
+                HStack(spacing: 10) {
+                    Spacer(minLength: 12)
+                    toolbarMenus
+                }
+            }
+        }
+    }
+
+    /// Add Folder, divider, search field, indexing spinner. The search
+    /// field's minWidth lets it compress before anything clips.
+    private var toolbarLeftControls: some View {
+        HStack(spacing: 10) {
+            Button {
+                showingFolderPicker = true
+            } label: {
+                Label("Add Folder", systemImage: "plus")
+            }
+            .help("Add a folder to AI memory")
+
+            Divider()
+                .frame(height: 18)
+
+            // Search
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search files...", text: $searchText)
+                    .textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+            .frame(minWidth: 100, idealWidth: 240, maxWidth: 240)
+
+            if store.isIndexing {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Indexing…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Folder filter and sort menus, right side of the toolbar.
+    private var toolbarMenus: some View {
+        HStack(spacing: 10) {
+            // Filter by folder
+            if !store.bookmarks.isEmpty {
+                Menu {
+                    ForEach(store.bookmarks) { bookmark in
+                        Toggle(bookmark.name, isOn: Binding(
+                            get: { selectedFolderIDs.contains(bookmark.id) },
+                            set: { isOn in
+                                if isOn { selectedFolderIDs.insert(bookmark.id) }
+                                else { selectedFolderIDs.remove(bookmark.id) }
+                            }
+                        ))
+                    }
+                    if !selectedFolderIDs.isEmpty {
+                        Divider()
+                        Button("Clear Folder Filter") { selectedFolderIDs.removeAll() }
+                    }
+                } label: {
+                    Label(selectedFolderIDs.isEmpty ? "All Folders" : "\(selectedFolderIDs.count) Folders", systemImage: "folder")
+                }
+                .fixedSize()
+            }
+
+            // Sort order and direction in one menu, so the labels can
+            // never collide the way the old Picker + arrow pair did.
+            Menu {
+                ForEach(SortOrder.allCases) { order in
+                    Button {
+                        sortOrder = order
+                    } label: {
+                        if sortOrder == order {
+                            Label(order.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(order.rawValue)
+                        }
+                    }
+                }
+                Divider()
+                Button {
+                    sortAscending.toggle()
+                } label: {
+                    Label(sortAscending ? "Ascending" : "Descending",
+                          systemImage: sortAscending ? "arrow.up" : "arrow.down")
+                }
+            } label: {
+                Label("\(sortOrder.rawValue) \(sortAscending ? "↑" : "↓")", systemImage: "arrow.up.arrow.down")
+            }
+            .fixedSize()
         }
     }
 
@@ -220,13 +253,15 @@ struct FileRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(file.fileName)
                     .font(.system(.body, design: file.isCode ? .monospaced : .default))
-                    .lineLimit(1)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 12) {
                     Text(file.relativePath)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
 
                     Text(ByteCountFormatter.string(fromByteCount: file.fileSize, countStyle: .file))
                         .font(.caption.monospacedDigit())

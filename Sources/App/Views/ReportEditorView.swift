@@ -50,10 +50,12 @@ struct ReportEditorView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        // Axo floats over every debrief: no card, no container — a free-floating
-        // companion pinned to the corner while the report scrolls beneath it.
-        // Invisible to clicks, so text selection keeps working underneath.
-        .overlay(alignment: .bottomTrailing) {
+        // Axo lives in a reserved strip on the trailing edge — project
+        // condition: floating UI sits in its own reserved space, content never
+        // scrolls beneath it, and it never covers controls. The safe-area inset
+        // keeps the report's text column out of the strip, so nothing can pass
+        // under him. Invisible to clicks, so selection keeps working underneath.
+        .safeAreaInset(edge: .trailing, alignment: .bottom) {
             if !model.reportBody.isEmpty {
                 AxoStageView()
                     .frame(width: 195, height: 195)

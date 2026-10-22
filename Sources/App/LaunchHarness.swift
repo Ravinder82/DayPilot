@@ -13,6 +13,16 @@ enum LaunchHarness {
 
     private static let logger = Logger(subsystem: AppInfo.identifier, category: "launch")
 
+    /// The live model, held weakly by the snapshot harness.
+    ///
+    /// SwiftUI installs its own delegate (`SwiftUI.AppDelegate`), so the harness
+    /// cannot reach the app model through `NSApp.delegate` — the cast fails even
+    /// though our `AppDelegate` receives its lifecycle callbacks. The main
+    /// window hands its model here the same moment it hands it to the AppKit
+    /// delegate for quitting.
+    @MainActor
+    static weak var snapshotModel: AppModel?
+
     /// True when this process is a standalone binary rather than a bundled app.
     ///
     /// `open dist/DayPilot.app` and `.build/release/DayPilot` are the same code,

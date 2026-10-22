@@ -579,11 +579,13 @@ private struct ModelRowView: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(option.label)
-                    .lineLimit(1)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(option.id)
                     .font(.caption.monospaced())
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
 
